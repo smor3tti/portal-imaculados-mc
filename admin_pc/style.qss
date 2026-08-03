@@ -1,0 +1,133 @@
+/* Portal Imaculados M.C. - Tema Preto & Dourado */
+
+* {
+    font-family: "Segoe UI", "Arial", sans-serif;
+}
+
+QWidget {
+    background-color: #0d0d0d;
+    color: #f2e6c9;
+}
+
+/* ---------- Tela de login ---------- */
+#LoginCard {
+    background-color: #161616;
+    border: 1px solid #caa143;
+    border-radius: 14px;
+}
+
+#TituloClube {
+    color: #d4af37;
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: 2px;
+}
+
+#SubtituloLogin {
+    color: #8a8a8a;
+    font-size: 12px;
+}
+
+QLineEdit {
+    background-color: #1e1e1e;
+    border: 1px solid #3a3a3a;
+    border-radius: 8px;
+    padding: 10px 12px;
+    color: #f2e6c9;
+    font-size: 13px;
+    selection-background-color: #d4af37;
+}
+
+QLineEdit:focus {
+    border: 1px solid #d4af37;
+}
+
+QPushButton#BotaoEntrar {
+    background-color: #d4af37;
+    color: #0d0d0d;
+    border-radius: 8px;
+    padding: 10px;
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 1px;
+}
+
+QPushButton#BotaoEntrar:hover {
+    background-color: #e6c14f;
+}
+
+QPushButton#BotaoEntrar:pressed {
+    background-color: #b8912c;
+}
+
+QLabel#LabelErro {
+    color: #e2574c;
+    font-size: 12px;
+}
+
+/* ---------- Sidebar / Dashboard ---------- */
+#Sidebar {
+    background-color: #141414;
+    border-right: 1px solid #2a2a2a;
+}
+
+#Sidebar QPushButton {
+    text-align: left;
+    background-color: transparent;
+    border: none;
+    padding: 12px 18px;
+    color: #d8d8d8;
+    font-size: 13px;
+    border-radius: 6px;
+}
+
+#Sidebar QPushButton:hover {
+    background-color: #232016;
+    color: #d4af37;
+}
+
+#Sidebar QPushButton:checked {
+    background-color: #2a2410;
+    color: #d4af37;
+    font-weight: 600;
+    border-left: 3px solid #d4af37;
+}
+
+#SaudacaoTopo {
+    color: #f2e6c9;
+    font-size: 16px;
+    font-weight: 600;
+}
+
+#Card {
+    background-color: #161616;
+    border: 1px solid #2a2a2a;
+    border-radius: 12px;
+}
+
+#CardTitulo {
+    color: #9a9a9a;
+    font-size: 11px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+}
+
+#CardValor {
+    color: #d4af37;
+    font-size: 24px;
+    font-weight: 700;
+}
+
+QProgressBar {
+    background-color: #1e1e1e;
+    border: none;
+    border-radius: 6px;
+    height: 10px;
+    text-align: center;
+    color: transparent;
+}
+
+QProgressBar::chunk {
+    background-color: #d4af37;
+    border-radius: 6px;
+}
