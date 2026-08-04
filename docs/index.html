@@ -23,6 +23,24 @@
 }
 *{box-sizing:border-box;margin:0;padding:0;}
 body{background:var(--bg);color:var(--cream);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;min-height:100vh;}
+
+/* ---------- Fundo animado (brasão) ---------- */
+#video-fundo{
+  position:fixed;
+  top:50%; left:50%;
+  transform:translate(-50%,-50%);
+  width:min(92vh,92vw); height:min(92vh,92vw);
+  object-fit:contain;
+  opacity:0.09;
+  z-index:0;
+  pointer-events:none;
+  -webkit-mask-image:radial-gradient(circle at center, #000 55%, transparent 78%);
+  mask-image:radial-gradient(circle at center, #000 55%, transparent 78%);
+}
+#public-screen,#cadastro-screen,#login-screen,#app-screen{position:relative;z-index:1;}
+@media (prefers-reduced-motion: reduce){
+  #video-fundo{display:none;}
+}
 .display{font-family:"Arial Black","Helvetica Neue",Arial,sans-serif;font-weight:900;letter-spacing:3px;text-transform:uppercase;}
 .mono{font-family:"SF Mono","Consolas","Courier New",monospace;}
 button,input{font-family:inherit;}
@@ -168,6 +186,10 @@ tr:hover td{background:#191919;}
 </style>
 </head>
 <body>
+
+<video id="video-fundo" autoplay loop muted playsinline poster="brasao-poster.jpg" aria-hidden="true">
+  <source src="brasao-animado.mp4" type="video/mp4">
+</video>
 
 <div id="public-screen">
   <div class="public-card">
