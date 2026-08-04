@@ -2,7 +2,15 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="description" content="Portal de gestão da irmandade Imaculados Moto Clube">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0d0d0d">
+<link rel="icon" href="favicon.png" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Imaculados">
 <title>Portal Imaculados M.C.</title>
 <style>
 :root{
@@ -24,6 +32,29 @@
 }
 *{box-sizing:border-box;margin:0;padding:0;}
 body{background:var(--bg);color:var(--cream);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;min-height:100vh;}
+
+/* Respeita a área do "notch"/barra inferior quando instalado no celular */
+#public-screen,#cadastro-screen,#login-screen{
+  padding-top:calc(24px + env(safe-area-inset-top));
+  padding-bottom:calc(24px + env(safe-area-inset-bottom));
+}
+.topbar{padding-top:calc(20px + env(safe-area-inset-top));}
+
+/* ---------- Convite para instalar ---------- */
+#faixa-instalar{
+  position:fixed; left:0; right:0; bottom:0;
+  z-index:60;
+  background:var(--surface); border-top:1px solid var(--gold);
+  padding:14px 18px calc(14px + env(safe-area-inset-bottom));
+  display:none; align-items:center; gap:14px;
+}
+#faixa-instalar img{width:38px;height:38px;border-radius:8px;flex-shrink:0;}
+#faixa-instalar .txt{flex:1;min-width:0;}
+#faixa-instalar .t1{font-size:13px;font-weight:700;color:var(--cream);}
+#faixa-instalar .t2{font-size:11.5px;color:var(--muted);margin-top:2px;line-height:1.4;}
+#faixa-instalar button{white-space:nowrap;}
+.btn-instalar{background:var(--gold);color:#0d0d0d;border:none;border-radius:8px;padding:9px 15px;font-size:12px;font-weight:700;cursor:pointer;}
+.btn-fechar-faixa{background:none;border:none;color:var(--muted-2);font-size:20px;cursor:pointer;padding:0 4px;line-height:1;}
 
 /* ---------- Fundo animado (brasão) ---------- */
 #video-fundo{
@@ -81,6 +112,10 @@ body{background:var(--bg);color:var(--cream);font-family:-apple-system,BlinkMacS
   #rilh-lateral{left:12px; gap:14px;}
   .rilh-letra{font-size:28px;}
   .rilh-palavra{font-size:11px; letter-spacing:1.5px;}
+}
+@media (max-width:430px){
+  /* Em telas estreitas a sigla passaria por cima do conteúdo */
+  #rilh-lateral{display:none !important;}
 }
 .display{font-family:"Arial Black","Helvetica Neue",Arial,sans-serif;font-weight:900;letter-spacing:3px;text-transform:uppercase;}
 .mono{font-family:"SF Mono","Consolas","Courier New",monospace;}
@@ -242,10 +277,20 @@ tr:hover td{background:#191919;}
   .sidebar{width:100%;flex-direction:row;overflow-x:auto;}
   .sidebar-header{display:none;}
   .sidebar nav{display:flex;padding:8px;}
+  .sidebar nav .nav-item{white-space:nowrap;border-left:none;border-bottom:3px solid transparent;}
+  .sidebar nav .nav-item.ativo{border-left:none;border-bottom-color:var(--gold);}
   .sidebar-footer{display:none;}
   .content{padding:20px 16px;}
   .grid-2{grid-template-columns:1fr;}
+  .topbar{padding:calc(14px + env(safe-area-inset-top)) 16px 14px;}
+  .saudacao{font-size:15px;}
+  #btn-sair-mobile{display:inline-block;}
+  .table-wrap{-webkit-overflow-scrolling:touch;}
+  .demo-banner input{width:100%;}
+  .demo-banner .grp{width:100%;}
 }
+#btn-sair-mobile{display:none;background:transparent;border:1px solid var(--border-strong);color:var(--muted);padding:7px 12px;border-radius:8px;font-size:11.5px;cursor:pointer;}
+#btn-sair-mobile:active{border-color:var(--danger);color:var(--danger);}
 </style>
 </head>
 <body>
@@ -320,7 +365,10 @@ tr:hover td{background:#191919;}
     <div class="main">
       <div class="topbar">
         <div class="saudacao">Olá, <span id="topo-nome"></span></div>
-        <div class="badge-cargo" id="topo-cargo"></div>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <div class="badge-cargo" id="topo-cargo"></div>
+          <button id="btn-sair-mobile" onclick="handleLogout()">Sair</button>
+        </div>
       </div>
       <div class="content" id="content"></div>
     </div>
@@ -328,6 +376,16 @@ tr:hover td{background:#191919;}
 </div>
 
 <div id="modal-root"></div>
+
+<div id="faixa-instalar">
+  <img src="icone-192.png" alt="">
+  <div class="txt">
+    <div class="t1">Instalar o Portal Imaculados</div>
+    <div class="t2" id="faixa-instalar-texto">Adicione à tela inicial e use como um aplicativo.</div>
+  </div>
+  <button class="btn-instalar" id="btn-instalar">Instalar</button>
+  <button class="btn-fechar-faixa" onclick="fecharFaixaInstalar()" aria-label="Fechar">&times;</button>
+</div>
 
 <script>
 /* ============ Emblema (brasão oficial) ============ */
@@ -1669,6 +1727,67 @@ async function resetarSenhaUsuario(usuarioId){
       '<div><b>Login:</b> '+login+'</div><div><b>Senha temporária:</b> '+senha+'</div></div>';
   }
 }
+
+/* ============ Instalação no celular (PWA) ============ */
+var promptInstalacao = null;
+
+if('serviceWorker' in navigator){
+  window.addEventListener('load', function(){
+    navigator.serviceWorker.register('sw.js').catch(function(e){
+      console.log('Service worker não registrado:', e);
+    });
+  });
+}
+
+function jaEstaInstalado(){
+  return window.matchMedia('(display-mode: standalone)').matches ||
+         window.navigator.standalone === true;
+}
+
+function ehIOS(){
+  return /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream;
+}
+
+function faixaFoiDispensada(){
+  try{ return sessionStorage.getItem('faixa-instalar-off') === '1'; }
+  catch(e){ return false; }
+}
+
+function fecharFaixaInstalar(){
+  document.getElementById('faixa-instalar').style.display = 'none';
+  try{ sessionStorage.setItem('faixa-instalar-off','1'); }catch(e){}
+}
+
+function mostrarFaixaInstalar(){
+  if(jaEstaInstalado() || faixaFoiDispensada()) return;
+  document.getElementById('faixa-instalar').style.display = 'flex';
+}
+
+/* Android/Chrome: o navegador avisa quando a instalação é possível */
+window.addEventListener('beforeinstallprompt', function(ev){
+  ev.preventDefault();
+  promptInstalacao = ev;
+  mostrarFaixaInstalar();
+});
+
+document.getElementById('btn-instalar').addEventListener('click', async function(){
+  if(promptInstalacao){
+    promptInstalacao.prompt();
+    var escolha = await promptInstalacao.userChoice;
+    promptInstalacao = null;
+    if(escolha && escolha.outcome === 'accepted') fecharFaixaInstalar();
+    return;
+  }
+  /* iPhone não permite instalar por botão: explicamos o caminho manual */
+  document.getElementById('faixa-instalar-texto').innerHTML =
+    'No iPhone: toque em <b>Compartilhar</b> na barra do Safari e escolha <b>Adicionar à Tela de Início</b>.';
+  this.style.display = 'none';
+});
+
+window.addEventListener('appinstalled', function(){ fecharFaixaInstalar(); });
+
+/* iPhone não dispara o aviso automático — mostramos a faixa mesmo assim */
+if(ehIOS()) setTimeout(mostrarFaixaInstalar, 2500);
 
 /* ============ Início ============ */
 render();
