@@ -206,7 +206,8 @@ var demoIntegrantes = [
   {id:5, nome:'Bruno Costa', apelido:'Urso', cargo:'Integrante', status:'Ativo', moto_modelo:'Harley Sportster Iron 883', moto_placa:'MNO7890', telefone:'(11) 98888-1050', email:'urso@imaculadosmc.com'},
   {id:6, nome:'Camila Ferreira', apelido:'Índia', cargo:'Integrante', status:'Ativo', moto_modelo:'Kawasaki Vulcan S', moto_placa:'PQR1122', telefone:'(11) 98888-1060', email:'india@imaculadosmc.com'},
   {id:7, nome:'Diego Rocha', apelido:'Cigano', cargo:'Integrante', status:'Inativo', moto_modelo:'Honda Shadow 600', moto_placa:'STU3344', telefone:'(11) 98888-1070', email:'cigano@imaculadosmc.com'},
-  {id:8, nome:'Felipe Nogueira', apelido:'Padre', cargo:'Diretor', status:'Ativo', moto_modelo:'Triumph Bonneville T120', moto_placa:'VWX5566', telefone:'(11) 98888-1080', email:'padre@imaculadosmc.com'}
+  {id:8, nome:'Felipe Nogueira', apelido:'Padre', cargo:'Diretor', status:'Ativo', moto_modelo:'Triumph Bonneville T120', moto_placa:'VWX5566', telefone:'(11) 98888-1080', email:'padre@imaculadosmc.com'},
+  {id:9, nome:'Thiago Alves', apelido:'Novato', cargo:'Prospero', status:'Ativo', moto_modelo:'Honda CB 500', moto_placa:'YZA7788', telefone:'(11) 98888-1090', email:'novato@imaculadosmc.com'}
 ];
 
 var demoMensalidades = [
@@ -224,6 +225,21 @@ var demoDashboard = {
   proximo_evento_nome: 'Encontro Regional de Motoclubes',
   proximo_evento_data: '2026-08-23'
 };
+
+var demoEventos = [
+  {id:1, nome:'Encontro Regional de Motoclubes', data:'2026-08-23', local:'Sorocaba - SP', descricao:'Encontro anual reunindo motoclubes da região.', tipo:'Encontro', status:'Confirmado', criador_id:1},
+  {id:2, nome:'Churrasco de Confraternização', data:'2026-08-30', local:'Sede do Imaculados M.C.', descricao:'Churrasco mensal da irmandade, tragam a família.', tipo:'Churrasco', status:'Planejado', criador_id:3},
+  {id:3, nome:'Passeio Serra do Mar', data:'2026-09-14', local:'Serra do Mar - SP', descricao:'Passeio de final de semana, saída às 7h da sede.', tipo:'Passeio', status:'Planejado', criador_id:2},
+  {id:4, nome:'Aniversário do Clube - 12 anos', data:'2026-07-05', local:'Sede do Imaculados M.C.', descricao:'Festa de aniversário do M.C.', tipo:'Aniversário', status:'Realizado', criador_id:1}
+];
+
+var demoPresencas = {
+  1: [{integrante_id:1, confirmacao:'Confirmado'},{integrante_id:2, confirmacao:'Confirmado'},{integrante_id:3, confirmacao:'Pendente'}],
+  2: [{integrante_id:1, confirmacao:'Confirmado'}],
+  3: [],
+  4: [{integrante_id:1, confirmacao:'Confirmado'},{integrante_id:2, confirmacao:'Confirmado'},{integrante_id:4, confirmacao:'Confirmado'},{integrante_id:5, confirmacao:'Recusado'}]
+};
+var USUARIO_DEMO_ID = 1; // integrante logado no modo demonstração (Presidente)
 
 /* ============ Helpers ============ */
 function fmtMoeda(v){ return 'R$ ' + Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2, maximumFractionDigits:2}); }
@@ -289,7 +305,8 @@ function setApiBase(){
 var menuItens = [
   {id:'dashboard', label:'Dashboard'},
   {id:'membros', label:'Integrantes'},
-  {id:'mensalidades', label:'Mensalidades'}
+  {id:'mensalidades', label:'Mensalidades'},
+  {id:'eventos', label:'Eventos'}
 ];
 
 function irPara(view){ state.view = view; render(); }
@@ -322,6 +339,7 @@ function render(){
   if(state.view==='dashboard') renderDashboard(body);
   else if(state.view==='membros') renderMembros(body);
   else if(state.view==='mensalidades') renderMensalidades(body);
+  else if(state.view==='eventos') renderEventos(body);
 }
 
 function demoBanner(){
@@ -409,7 +427,7 @@ function abrirModalNovoIntegrante(){
         '</div>' +
         '<div class="grid-2">' +
           '<div class="campo"><label>Cargo</label><select id="novo-cargo">' +
-            '<option>Integrante</option><option>Presidente</option><option>Vice-Presidente</option>' +
+            '<option>Integrante</option><option>Prospero</option><option>Presidente</option><option>Vice-Presidente</option>' +
             '<option>Diretor</option><option>Tesoureiro</option><option>Disciplina</option>' +
           '</select></div>' +
           '<div class="campo"><label>Status</label><select id="novo-status"><option>Ativo</option><option>Inativo</option></select></div>' +
@@ -504,6 +522,139 @@ async function marcarPaga(id){
   var m = demoMensalidades.find(function(x){return x.id===id;});
   if(m){ m.pago=true; m.forma_pagamento='Pix'; }
   desenharMensalidades();
+}
+
+/* ============ Eventos ============ */
+var TIPO_ICONE = {'Passeio':'🏍️','Encontro':'🤝','Churrasco':'🍖','Aniversário':'🎉','Outro':'📌'};
+
+function statusPillClasseEvento(status){
+  if(status==='Realizado') return 'status-ativo';
+  if(status==='Cancelado') return 'status-inativo';
+  return 'status-pago'; /* Planejado / Confirmado usam o verde de "positivo" */
+}
+
+async function renderEventos(body){
+  body.innerHTML =
+    '<div class="painel-titulo">Eventos</div>' +
+    '<div class="painel-sub">Passeios, encontros, churrascos e aniversários da irmandade</div>' +
+    '<div class="toolbar"><button class="btn-primario" onclick="abrirModalNovoEvento()">+ Novo evento</button></div>' +
+    '<div class="cards-grid" id="grid-eventos"></div>';
+
+  var lista = demoEventos;
+  if(state.apiBase){
+    try{ lista = await apiFetch('/eventos'); }catch(e){ /* mantém mock em caso de falha */ }
+  }
+  lista = lista.slice().sort(function(a,b){ return a.data < b.data ? -1 : 1; });
+
+  var grid = document.getElementById('grid-eventos');
+  if(!grid) return;
+  if(lista.length===0){
+    grid.innerHTML = '<div class="vazio">Nenhum evento cadastrado ainda.</div>';
+    return;
+  }
+
+  grid.innerHTML = lista.map(function(ev){
+    var presencasEv = demoPresencas[ev.id] || [];
+    var totalConfirmados = ev.total_confirmados!==undefined ? ev.total_confirmados : presencasEv.filter(function(p){return p.confirmacao==='Confirmado';}).length;
+    var minhaPresenca = presencasEv.find(function(p){return p.integrante_id===USUARIO_DEMO_ID;});
+    var meuStatus = minhaPresenca ? minhaPresenca.confirmacao : 'Pendente';
+    return '<div class="card">' +
+      '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">' +
+        '<div class="card-titulo">'+(TIPO_ICONE[ev.tipo]||'📌')+' '+ev.tipo.toUpperCase()+'</div>' +
+        '<span class="status-pill '+statusPillClasseEvento(ev.status)+'">'+ev.status+'</span>' +
+      '</div>' +
+      '<div style="font-size:16px;font-weight:700;color:var(--cream);margin:6px 0 2px;">'+ev.nome+'</div>' +
+      '<div class="card-sub" style="margin-top:0;">'+fmtData(ev.data)+' · '+(ev.local||'Local a definir')+'</div>' +
+      '<div style="font-size:12.5px;color:var(--muted);margin-top:10px;line-height:1.5;">'+(ev.descricao||'')+'</div>' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;">' +
+        '<button class="acao-link" onclick="verPresencas('+ev.id+')">'+totalConfirmados+' confirmado(s) — ver lista</button>' +
+      '</div>' +
+      '<div style="display:flex;gap:8px;margin-top:12px;">' +
+        '<button class="tab '+(meuStatus==='Confirmado'?'ativo':'')+'" style="flex:1;text-align:center;" onclick="responderPresenca('+ev.id+',\'Confirmado\')">Vou</button>' +
+        '<button class="tab '+(meuStatus==='Recusado'?'ativo':'')+'" style="flex:1;text-align:center;" onclick="responderPresenca('+ev.id+',\'Recusado\')">Não vou</button>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+}
+
+async function responderPresenca(eventoId, resposta){
+  if(state.apiBase){
+    try{ await apiFetch('/eventos/'+eventoId+'/presenca', {method:'POST', body:JSON.stringify({confirmacao:resposta})}); }
+    catch(e){ alert('Erro ao registrar presença: '+e.message); return; }
+  }
+  if(!demoPresencas[eventoId]) demoPresencas[eventoId] = [];
+  var existente = demoPresencas[eventoId].find(function(p){return p.integrante_id===USUARIO_DEMO_ID;});
+  if(existente) existente.confirmacao = resposta;
+  else demoPresencas[eventoId].push({integrante_id:USUARIO_DEMO_ID, confirmacao:resposta});
+  renderEventos(document.getElementById('view-body'));
+}
+
+async function verPresencas(eventoId){
+  var evento = demoEventos.find(function(e){return e.id===eventoId;});
+  var presencasEv = demoPresencas[eventoId] || [];
+  if(state.apiBase){
+    try{ presencasEv = await apiFetch('/eventos/'+eventoId+'/presencas'); }catch(e){}
+  }
+  var linhas = presencasEv.map(function(p){
+    var nome = p.integrante_nome || integranteNome(p.integrante_id);
+    var classe = p.confirmacao==='Confirmado' ? 'status-pago' : (p.confirmacao==='Recusado' ? 'status-pendente' : 'status-inativo');
+    return '<tr><td>'+nome+'</td><td><span class="status-pill '+classe+'">'+p.confirmacao+'</span></td></tr>';
+  }).join('') || '<tr><td colspan="2" class="vazio">Ninguém respondeu ainda.</td></tr>';
+
+  document.getElementById('modal-root').innerHTML =
+    '<div class="modal-overlay" onclick="if(event.target===this) fecharModal()">' +
+      '<div class="modal">' +
+        '<h3>Presença — '+(evento?evento.nome:'Evento')+'</h3>' +
+        '<div class="table-wrap"><table><thead><tr><th>Integrante</th><th>Resposta</th></tr></thead><tbody>'+linhas+'</tbody></table></div>' +
+        '<div class="modal-acoes"><button class="btn-secundario" onclick="fecharModal()">Fechar</button></div>' +
+      '</div>' +
+    '</div>';
+}
+
+function abrirModalNovoEvento(){
+  document.getElementById('modal-root').innerHTML =
+    '<div class="modal-overlay" onclick="if(event.target===this) fecharModal()">' +
+      '<div class="modal">' +
+        '<h3>Novo evento</h3>' +
+        '<div class="campo"><label>Nome do evento</label><input type="text" id="novo-evento-nome"></div>' +
+        '<div class="grid-2">' +
+          '<div class="campo"><label>Data</label><input type="date" id="novo-evento-data"></div>' +
+          '<div class="campo"><label>Tipo</label><select id="novo-evento-tipo">' +
+            '<option>Encontro</option><option>Passeio</option><option>Churrasco</option><option>Aniversário</option><option>Outro</option>' +
+          '</select></div>' +
+        '</div>' +
+        '<div class="campo"><label>Local</label><input type="text" id="novo-evento-local"></div>' +
+        '<div class="campo"><label>Descrição</label><input type="text" id="novo-evento-descricao"></div>' +
+        '<div class="modal-acoes">' +
+          '<button class="btn-secundario" onclick="fecharModal()">Cancelar</button>' +
+          '<button class="btn-entrar" style="width:auto;padding:9px 20px;" onclick="salvarNovoEvento()">Salvar</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+}
+
+async function salvarNovoEvento(){
+  var novo = {
+    nome: document.getElementById('novo-evento-nome').value.trim(),
+    data: document.getElementById('novo-evento-data').value,
+    tipo: document.getElementById('novo-evento-tipo').value,
+    local: document.getElementById('novo-evento-local').value.trim(),
+    descricao: document.getElementById('novo-evento-descricao').value.trim(),
+    status: 'Planejado'
+  };
+  if(!novo.nome || !novo.data){ alert('Informe ao menos o nome e a data do evento.'); return; }
+
+  if(state.apiBase){
+    try{ await apiFetch('/eventos', {method:'POST', body:JSON.stringify(novo)}); }
+    catch(e){ alert('Erro ao salvar na API: '+e.message); return; }
+  } else {
+    novo.id = Math.max.apply(null, demoEventos.map(function(e){return e.id;})) + 1;
+    novo.criador_id = USUARIO_DEMO_ID;
+    demoEventos.push(novo);
+    demoPresencas[novo.id] = [];
+  }
+  fecharModal();
+  renderEventos(document.getElementById('view-body'));
 }
 
 /* ============ Início ============ */

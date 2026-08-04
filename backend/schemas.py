@@ -94,6 +94,50 @@ class MensalidadePagamento(BaseModel):
     data_pagamento: Optional[date] = None
 
 
+# ---------- Eventos ----------
+class EventoBase(BaseModel):
+    nome: str
+    data: date
+    local: Optional[str] = None
+    descricao: Optional[str] = None
+    tipo: str = "Encontro"  # Passeio, Encontro, Churrasco, Aniversário, Outro
+    status: str = "Planejado"  # Planejado, Confirmado, Realizado, Cancelado
+
+
+class EventoCreate(EventoBase):
+    pass
+
+
+class EventoUpdate(BaseModel):
+    nome: Optional[str] = None
+    data: Optional[date] = None
+    local: Optional[str] = None
+    descricao: Optional[str] = None
+    tipo: Optional[str] = None
+    status: Optional[str] = None
+
+
+class EventoOut(EventoBase):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    criador_id: Optional[int] = None
+    total_confirmados: int = 0
+
+
+# ---------- Presenças ----------
+class PresencaOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    evento_id: int
+    integrante_id: int
+    integrante_nome: Optional[str] = None
+    confirmacao: str
+
+
+class PresencaAtualizar(BaseModel):
+    confirmacao: str  # Confirmado, Recusado, Pendente
+
+
 # ---------- Dashboard ----------
 class DashboardResumo(BaseModel):
     total_integrantes: int

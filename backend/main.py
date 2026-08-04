@@ -20,7 +20,7 @@ from database import get_db, init_db
 app = FastAPI(title="Portal Imaculados M.C. API", version="0.1.0")
 
 # Cargos oficiais do clube e valor padrão da mensalidade
-CARGOS_VALIDOS = ["Presidente", "Vice-Presidente", "Diretor", "Tesoureiro", "Disciplina", "Integrante"]
+CARGOS_VALIDOS = ["Presidente", "Vice-Presidente", "Diretor", "Tesoureiro", "Disciplina", "Integrante", "Prospero"]
 VALOR_MENSALIDADE_PADRAO = Decimal("40.00")
 
 # Libera acesso do app desktop / futuro PWA. Em produção, restrinja allow_origins.
@@ -230,4 +230,130 @@ def registrar_pagamento(
 
     item = schemas.MensalidadeOut.model_validate(mensalidade)
     item.integrante_nome = mensalidade.integrante.nome if mensalidade.integrante else None
+    return item
+
+
+# ---------- Eventos ----------
+def _evento_para_out(evento: models.Evento) -> schemas.EventoOut:
+    item = schemas.EventoOut.model_validate(evento)
+    item.total_confirmados = sum(1 for p in evento.presencas if p.confirmacao == "Confirmado")
+    return item
+
+
+@app.get("/eventos", response_model=list[schemas.EventoOut])
+def listar_eventos(
+    apenas_futuros: bool = False,
+    db: Session = Depends(get_db),
+    usuario: models.Usuario = Depends(auth.obter_usuario_atual),
+):
+    consulta = db.query(models.Evento)
+    if apenas_futuros:
+        consulta = consulta.filter(models.Evento.data >= date.today())
+    eventos = consulta.order_by(models.Evento.data.asc()).all()
+    return [_evento_para_out(e) for e in eventos]
+
+
+@app.post("/eventos", response_model=schemas.EventoOut)
+def criar_evento(
+    dados: schemas.EventoCreate,
+    db: Session = Depends(get_db),
+    usuario: models.Usuario = Depends(auth.exigir_cargo("Presidente", "Vice-Presidente", "Diretor")),
+):
+    novo = models.Evento(**dados.model_dump(), criador_id=usuario.integrante_id)
+    db.add(novo)
+    db.commit()
+    db.refresh(novo)
+    return _evento_para_out(novo)
+
+
+@app.put("/eventos/{evento_id}", response_model=schemas.EventoOut)
+def atualizar_evento(
+    evento_id: int,
+    dados: schemas.EventoUpdate,
+    db: Session = Depends(get_db),
+    usuario: models.Usuario = Depends(auth.exigir_cargo("Presidente", "Vice-Presidente", "Diretor")),
+):
+    evento = db.query(models.Evento).filter(models.Evento.id == evento_id).first()
+    if not evento:
+        raise HTTPException(status_code=404, detail="Evento não encontrado")
+
+    for campo, valor in dados.model_dump(exclude_unset=True).items():
+        setattr(evento, campo, valor)
+
+    db.commit()
+    db.refresh(evento)
+    return _evento_para_out(evento)
+
+
+@app.delete("/eventos/{evento_id}")
+def excluir_evento(
+    evento_id: int,
+    db: Session = Depends(get_db),
+    usuario: models.Usuario = Depends(auth.exigir_cargo("Presidente", "Vice-Presidente", "Diretor")),
+):
+    evento = db.query(models.Evento).filter(models.Evento.id == evento_id).first()
+    if not evento:
+        raise HTTPException(status_code=404, detail="Evento não encontrado")
+
+    db.delete(evento)
+    db.commit()
+    return {"detail": "Evento excluído"}
+
+
+# ---------- Presenças ----------
+@app.get("/eventos/{evento_id}/presencas", response_model=list[schemas.PresencaOut])
+def listar_presencas(
+    evento_id: int,
+    db: Session = Depends(get_db),
+    usuario: models.Usuario = Depends(auth.obter_usuario_atual),
+):
+    evento = db.query(models.Evento).filter(models.Evento.id == evento_id).first()
+    if not evento:
+        raise HTTPException(status_code=404, detail="Evento não encontrado")
+
+    resultado = []
+    for p in evento.presencas:
+        item = schemas.PresencaOut.model_validate(p)
+        item.integrante_nome = p.integrante.nome if p.integrante else None
+        resultado.append(item)
+    return resultado
+
+
+@app.post("/eventos/{evento_id}/presenca", response_model=schemas.PresencaOut)
+def confirmar_presenca(
+    evento_id: int,
+    dados: schemas.PresencaAtualizar,
+    db: Session = Depends(get_db),
+    usuario: models.Usuario = Depends(auth.obter_usuario_atual),
+):
+    """Confirma/atualiza a presença do próprio usuário autenticado em um evento."""
+    evento = db.query(models.Evento).filter(models.Evento.id == evento_id).first()
+    if not evento:
+        raise HTTPException(status_code=404, detail="Evento não encontrado")
+    if not usuario.integrante_id:
+        raise HTTPException(status_code=400, detail="Usuário não vinculado a um integrante")
+
+    presenca = (
+        db.query(models.Presenca)
+        .filter(
+            models.Presenca.evento_id == evento_id,
+            models.Presenca.integrante_id == usuario.integrante_id,
+        )
+        .first()
+    )
+    if presenca:
+        presenca.confirmacao = dados.confirmacao
+    else:
+        presenca = models.Presenca(
+            evento_id=evento_id,
+            integrante_id=usuario.integrante_id,
+            confirmacao=dados.confirmacao,
+        )
+        db.add(presenca)
+
+    db.commit()
+    db.refresh(presenca)
+
+    item = schemas.PresencaOut.model_validate(presenca)
+    item.integrante_nome = presenca.integrante.nome if presenca.integrante else None
     return item

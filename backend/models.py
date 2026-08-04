@@ -21,7 +21,7 @@ class Usuario(Base):
     login = Column(String(50), unique=True, nullable=False, index=True)
     senha_hash = Column(String(255), nullable=False)
     cargo = Column(String(30), nullable=False, default="Integrante")
-    # Cargos oficiais: Presidente, Vice-Presidente, Diretor, Tesoureiro, Disciplina, Integrante
+    # Cargos oficiais: Presidente, Vice-Presidente, Diretor, Tesoureiro, Disciplina, Integrante, Prospero
     ativo = Column(Boolean, default=True)
     criado_em = Column(DateTime, default=datetime.utcnow)
 
@@ -78,6 +78,23 @@ class Evento(Base):
     data = Column(Date, nullable=False)
     local = Column(String(200))
     descricao = Column(Text)
+    tipo = Column(String(20), default="Encontro")  # Passeio, Encontro, Churrasco, Aniversário, Outro
+    status = Column(String(20), default="Planejado")  # Planejado, Confirmado, Realizado, Cancelado
+    criador_id = Column(Integer, ForeignKey("integrantes.id"), nullable=True)
+
+    presencas = relationship("Presenca", back_populates="evento", cascade="all, delete-orphan")
+
+
+class Presenca(Base):
+    __tablename__ = "presencas"
+
+    id = Column(Integer, primary_key=True, index=True)
+    evento_id = Column(Integer, ForeignKey("eventos.id"), nullable=False)
+    integrante_id = Column(Integer, ForeignKey("integrantes.id"), nullable=False)
+    confirmacao = Column(String(15), default="Pendente")  # Pendente, Confirmado, Recusado
+
+    evento = relationship("Evento", back_populates="presencas")
+    integrante = relationship("Integrante")
 
 
 class Caixa(Base):
