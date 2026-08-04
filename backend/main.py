@@ -5,8 +5,11 @@ Rodar em desenvolvimento:
     uvicorn main:app --reload
 """
 import os
+import re
+import secrets
+import unicodedata
 import uuid
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
 
@@ -570,3 +573,113 @@ def excluir_documento(
     db.delete(documento)
     db.commit()
     return {"detail": "Documento excluído"}
+
+
+# ---------- Solicitações de cadastro (site público) ----------
+def _gerar_login(nome: str, db: Session) -> str:
+    """Gera um login único a partir do nome (primeiro + último nome, sem acentos)."""
+    normalizado = unicodedata.normalize("NFKD", nome).encode("ascii", "ignore").decode()
+    partes = re.sub(r"[^a-zA-Z ]", "", normalizado).lower().split()
+    base = (partes[0] + (partes[-1] if len(partes) > 1 else "")) or "integrante"
+
+    login = base
+    contador = 1
+    while db.query(models.Usuario).filter(models.Usuario.login == login).first():
+        contador += 1
+        login = f"{base}{contador}"
+    return login
+
+
+@app.post("/solicitacoes", response_model=schemas.SolicitacaoOut)
+def enviar_solicitacao(dados: schemas.SolicitacaoCreate, db: Session = Depends(get_db)):
+    """Endpoint público (sem autenticação) — formulário de ingresso no site."""
+    nova = models.SolicitacaoCadastro(**dados.model_dump())
+    db.add(nova)
+    db.commit()
+    db.refresh(nova)
+    return nova
+
+
+@app.get("/solicitacoes", response_model=list[schemas.SolicitacaoOut])
+def listar_solicitacoes(
+    status_filtro: str | None = None,
+    db: Session = Depends(get_db),
+    usuario: models.Usuario = Depends(auth.exigir_cargo("Presidente", "Vice-Presidente", "Diretor")),
+):
+    consulta = db.query(models.SolicitacaoCadastro)
+    if status_filtro:
+        consulta = consulta.filter(models.SolicitacaoCadastro.status == status_filtro)
+    return consulta.order_by(models.SolicitacaoCadastro.data_solicitacao.desc()).all()
+
+
+@app.post("/solicitacoes/{solicitacao_id}/aprovar", response_model=schemas.SolicitacaoAprovarOut)
+def aprovar_solicitacao(
+    solicitacao_id: int,
+    db: Session = Depends(get_db),
+    usuario: models.Usuario = Depends(auth.exigir_cargo("Presidente", "Vice-Presidente", "Diretor")),
+):
+    solicitacao = db.query(models.SolicitacaoCadastro).filter(
+        models.SolicitacaoCadastro.id == solicitacao_id
+    ).first()
+    if not solicitacao:
+        raise HTTPException(status_code=404, detail="Solicitação não encontrada")
+    if solicitacao.status != "Pendente":
+        raise HTTPException(status_code=400, detail="Esta solicitação já foi analisada")
+
+    novo_integrante = models.Integrante(
+        nome=solicitacao.nome,
+        apelido=solicitacao.apelido_desejado,
+        data_nascimento=solicitacao.data_nascimento,
+        cargo="Prospero",
+        telefone=solicitacao.telefone,
+        email=solicitacao.email,
+        moto_modelo=solicitacao.moto_modelo,
+        status="Ativo",
+    )
+    db.add(novo_integrante)
+    db.flush()  # garante o id antes de criar o usuário de acesso
+
+    login_gerado = _gerar_login(solicitacao.nome, db)
+    senha_temporaria = secrets.token_urlsafe(6)
+    novo_usuario = models.Usuario(
+        integrante_id=novo_integrante.id,
+        login=login_gerado,
+        senha_hash=auth.gerar_hash_senha(senha_temporaria),
+        cargo="Prospero",
+    )
+    db.add(novo_usuario)
+
+    solicitacao.status = "Aprovada"
+    solicitacao.analisado_por_id = usuario.integrante_id
+    solicitacao.data_analise = datetime.utcnow()
+    solicitacao.integrante_criado_id = novo_integrante.id
+
+    db.commit()
+
+    return schemas.SolicitacaoAprovarOut(
+        integrante_id=novo_integrante.id,
+        login_gerado=login_gerado,
+        senha_temporaria=senha_temporaria,
+    )
+
+
+@app.post("/solicitacoes/{solicitacao_id}/recusar", response_model=schemas.SolicitacaoOut)
+def recusar_solicitacao(
+    solicitacao_id: int,
+    db: Session = Depends(get_db),
+    usuario: models.Usuario = Depends(auth.exigir_cargo("Presidente", "Vice-Presidente", "Diretor")),
+):
+    solicitacao = db.query(models.SolicitacaoCadastro).filter(
+        models.SolicitacaoCadastro.id == solicitacao_id
+    ).first()
+    if not solicitacao:
+        raise HTTPException(status_code=404, detail="Solicitação não encontrada")
+    if solicitacao.status != "Pendente":
+        raise HTTPException(status_code=400, detail="Esta solicitação já foi analisada")
+
+    solicitacao.status = "Recusada"
+    solicitacao.analisado_por_id = usuario.integrante_id
+    solicitacao.data_analise = datetime.utcnow()
+    db.commit()
+    db.refresh(solicitacao)
+    return solicitacao

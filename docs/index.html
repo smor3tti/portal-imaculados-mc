@@ -120,6 +120,42 @@ tr:hover td{background:#191919;}
 .btn-secundario{background:transparent;border:1px solid var(--border-strong);color:var(--muted);padding:9px 16px;border-radius:8px;font-size:12px;cursor:pointer;}
 .btn-secundario:hover{border-color:var(--cream);color:var(--cream);}
 
+/* ---------- Página pública ---------- */
+#public-screen{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px;}
+.public-card{max-width:460px;width:100%;text-align:center;}
+.public-crest{width:150px;height:150px;margin:0 auto 20px;}
+.public-titulo{color:var(--gold);font-size:15px;letter-spacing:3px;margin-bottom:6px;}
+.public-frase{color:var(--muted);font-size:13px;margin-bottom:34px;line-height:1.6;}
+.public-botoes{display:flex;flex-direction:column;gap:12px;}
+.btn-outline-gold{width:100%;background:transparent;border:1px solid var(--gold);color:var(--gold);border-radius:8px;padding:13px;font-weight:700;letter-spacing:1px;text-transform:uppercase;font-size:13px;cursor:pointer;}
+.btn-outline-gold:hover{background:rgba(212,175,55,0.1);}
+.public-rodape{color:var(--muted-2);font-size:11px;margin-top:34px;letter-spacing:1px;}
+
+/* ---------- Cadastro público ---------- */
+#cadastro-screen{display:none;min-height:100vh;padding:40px 20px;justify-content:center;}
+.cadastro-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:36px;width:100%;max-width:480px;height:fit-content;}
+.cadastro-card h2{color:var(--gold);font-size:19px;margin-bottom:4px;}
+.cadastro-card .sub{color:var(--muted);font-size:12px;margin-bottom:24px;}
+.link-voltar{background:none;border:none;color:var(--muted);font-size:12px;cursor:pointer;margin-bottom:18px;display:inline-flex;align-items:center;gap:4px;padding:0;}
+.link-voltar:hover{color:var(--gold);}
+.confirmacao-box{text-align:center;padding:20px 0;}
+.confirmacao-box .icone{font-size:40px;margin-bottom:14px;}
+.confirmacao-box h3{color:var(--gold);font-size:17px;margin-bottom:10px;}
+.confirmacao-box p{color:var(--muted);font-size:13px;line-height:1.7;}
+
+/* ---------- Solicitações (admin) ---------- */
+.solic-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px 20px;margin-bottom:12px;}
+.solic-topo{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;}
+.solic-nome{font-size:15px;font-weight:700;color:var(--cream);}
+.solic-meta{color:var(--muted);font-size:12px;margin-top:3px;}
+.solic-msg{color:var(--cream);font-size:13px;margin-top:10px;line-height:1.6;background:var(--surface-2);border-radius:8px;padding:10px 12px;}
+.solic-acoes{display:flex;gap:8px;margin-top:14px;}
+.btn-aprovar{background:var(--success);color:#0d0d0d;border:none;border-radius:8px;padding:8px 16px;font-size:12px;font-weight:700;cursor:pointer;}
+.btn-recusar{background:transparent;border:1px solid var(--danger);color:var(--danger);border-radius:8px;padding:8px 16px;font-size:12px;font-weight:700;cursor:pointer;}
+.credenciais-box{background:var(--surface-2);border:1px dashed var(--gold);border-radius:8px;padding:14px;margin-top:14px;font-size:13px;}
+.credenciais-box div{margin:4px 0;}
+.credenciais-box b{color:var(--gold);}
+
 @media (max-width:760px){
   .shell{flex-direction:column;}
   .sidebar{width:100%;flex-direction:row;overflow-x:auto;}
@@ -133,8 +169,29 @@ tr:hover td{background:#191919;}
 </head>
 <body>
 
+<div id="public-screen">
+  <div class="public-card">
+    <div class="crest-wrap public-crest" id="crest-public"></div>
+    <div class="public-titulo">IMACULADOS MOTOR CLUBE</div>
+    <div class="public-frase">União · Respeito · Irmandade · Estrada<br>Portal oficial da irmandade Imaculados M.C.</div>
+    <div class="public-botoes">
+      <button class="btn-outline-gold" onclick="irParaCadastro()">Quero ingressar no M.C.</button>
+      <button class="btn-entrar" onclick="irParaLogin()">Já sou integrante — Entrar</button>
+    </div>
+    <div class="public-rodape">IMACULADOS M.C. BRASIL</div>
+  </div>
+</div>
+
+<div id="cadastro-screen">
+  <div class="cadastro-card">
+    <div style="text-align:left;"><button class="link-voltar" onclick="irParaPublico()">‹ Voltar</button></div>
+    <div id="cadastro-conteudo"></div>
+  </div>
+</div>
+
 <div id="login-screen">
   <div class="login-card">
+    <div style="text-align:left;"><button class="link-voltar" onclick="irParaPublico()">‹ Voltar</button></div>
     <div class="crest-wrap" id="crest-login"></div>
     <div class="subtitulo-login">Portal de gestão da irmandade</div>
     <form id="form-login" onsubmit="return handleLogin(event)">
@@ -189,7 +246,7 @@ function crestSvg(size){
 
 /* ============ Estado ============ */
 var state = {
-  screen:'login',
+  screen:'publico',
   view:'dashboard',
   token:null, cargo:null, nome:null,
   apiBase:'',
@@ -261,6 +318,11 @@ var demoDocumentos = [
   {id:3, titulo:'Contrato locação sede', categoria:'Contrato', arquivo_nome:'contrato_sede_2026.pdf', tamanho_kb:512, data_upload:'2026-06-02T14:00:00', integrante_id:1}
 ];
 
+var demoSolicitacoes = [
+  {id:1, nome:'Ricardo Souza Lima', apelido_desejado:'Trovão', telefone:'(11) 97777-2233', email:'ricardo.lima@teste.com', moto_modelo:'Yamaha XT 660', mensagem:'Ando de moto há 8 anos e conheci o clube em um encontro em Sorocaba. Gostaria muito de fazer parte da irmandade.', status:'Pendente', data_solicitacao:'2026-08-01T18:20:00'},
+  {id:2, nome:'Patrícia Gomes', apelido_desejado:'Pantera', telefone:'(11) 96666-4455', email:'patricia.gomes@teste.com', moto_modelo:'Kawasaki Z400', mensagem:'Sou motociclista há 3 anos e fui indicada por um integrante do clube.', status:'Pendente', data_solicitacao:'2026-07-29T11:05:00'}
+];
+
 /* ============ Helpers ============ */
 function fmtMoeda(v){ return 'R$ ' + Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2, maximumFractionDigits:2}); }
 function fmtData(d){ if(!d) return '—'; var p=d.split('-'); return p[2]+'/'+p[1]+'/'+p[0]; }
@@ -320,7 +382,7 @@ async function handleLogin(ev){
 }
 
 function handleLogout(){
-  state.token=null; state.cargo=null; state.nome=null; state.screen='login';
+  state.token=null; state.cargo=null; state.nome=null; state.screen='publico';
   render();
 }
 
@@ -338,30 +400,37 @@ var menuItens = [
   {id:'mensalidades', label:'Mensalidades'},
   {id:'eventos', label:'Eventos'},
   {id:'comunicados', label:'Comunicados'},
-  {id:'documentos', label:'Documentos'}
+  {id:'documentos', label:'Documentos'},
+  {id:'solicitacoes', label:'Solicitações'}
 ];
 
 function irPara(view){ state.view = view; render(); }
+function irParaPublico(){ state.screen='publico'; render(); }
+function irParaLogin(){ state.screen='login'; render(); }
+function irParaCadastro(){ state.screen='cadastro'; render(); }
 
 /* ============ Render raiz ============ */
 function render(){
+  document.getElementById('crest-public').innerHTML = crestSvg(150);
   document.getElementById('crest-login').innerHTML = crestSvg(120);
   document.getElementById('crest-sidebar').innerHTML = crestSvg(44);
 
-  if(state.screen==='login'){
-    document.getElementById('login-screen').style.display='flex';
-    document.getElementById('app-screen').style.display='none';
-    return;
-  }
-  document.getElementById('login-screen').style.display='none';
-  document.getElementById('app-screen').style.display='block';
+  document.getElementById('public-screen').style.display = state.screen==='publico' ? 'flex' : 'none';
+  document.getElementById('cadastro-screen').style.display = state.screen==='cadastro' ? 'flex' : 'none';
+  document.getElementById('login-screen').style.display = state.screen==='login' ? 'flex' : 'none';
+  document.getElementById('app-screen').style.display = state.screen==='app' ? 'block' : 'none';
+
+  if(state.screen==='cadastro'){ renderCadastroForm(); return; }
+  if(state.screen!=='app') return;
 
   document.getElementById('topo-nome').textContent = state.nome || '';
   document.getElementById('topo-cargo').textContent = state.cargo || '';
 
   var nav = document.getElementById('nav-menu');
   nav.innerHTML = menuItens.map(function(item){
-    return '<button class="nav-item '+(state.view===item.id?'ativo':'')+'" onclick="irPara(\''+item.id+'\')">'+item.label+'</button>';
+    return '<button class="nav-item '+(state.view===item.id?'ativo':'')+'" onclick="irPara(\''+item.id+'\')">'+item.label+
+      (item.id==='solicitacoes' ? contadorSolicitacoesPendentesBadge() : '') +
+    '</button>';
   }).join('');
 
   var content = document.getElementById('content');
@@ -374,6 +443,12 @@ function render(){
   else if(state.view==='eventos') renderEventos(body);
   else if(state.view==='comunicados') renderComunicados(body);
   else if(state.view==='documentos') renderDocumentos(body);
+  else if(state.view==='solicitacoes') renderSolicitacoes(body);
+}
+
+function contadorSolicitacoesPendentesBadge(){
+  var n = demoSolicitacoes.filter(function(s){return s.status==='Pendente';}).length;
+  return n>0 ? ' <span style="background:var(--gold);color:#0d0d0d;border-radius:20px;padding:1px 7px;font-size:10px;font-weight:700;margin-left:4px;">'+n+'</span>' : '';
 }
 
 function demoBanner(){
@@ -953,6 +1028,160 @@ async function excluirDocumento(id){
     demoDocumentos = demoDocumentos.filter(function(d){return d.id!==id;});
   }
   desenharDocumentos();
+}
+
+/* ============ Cadastro público (solicitação de ingresso) ============ */
+function renderCadastroForm(){
+  document.getElementById('cadastro-conteudo').innerHTML =
+    '<h2>Quero ingressar no M.C.</h2>' +
+    '<div class="sub">Preencha seus dados. A diretoria vai analisar sua solicitação.</div>' +
+    '<div class="campo"><label>Nome completo</label><input type="text" id="cad-nome"></div>' +
+    '<div class="grid-2">' +
+      '<div class="campo"><label>Apelido desejado</label><input type="text" id="cad-apelido"></div>' +
+      '<div class="campo"><label>Telefone / WhatsApp</label><input type="text" id="cad-telefone" placeholder="(11) 99999-0000"></div>' +
+    '</div>' +
+    '<div class="grid-2">' +
+      '<div class="campo"><label>E-mail</label><input type="email" id="cad-email"></div>' +
+      '<div class="campo"><label>Data de nascimento</label><input type="date" id="cad-nascimento"></div>' +
+    '</div>' +
+    '<div class="campo"><label>Modelo da moto</label><input type="text" id="cad-moto"></div>' +
+    '<div class="campo"><label>Por que quer fazer parte do M.C.?</label><input type="text" id="cad-mensagem" placeholder="Conte um pouco sobre você"></div>' +
+    '<button class="btn-entrar" onclick="enviarSolicitacaoPublica()">Enviar solicitação</button>';
+}
+
+async function enviarSolicitacaoPublica(){
+  var dados = {
+    nome: document.getElementById('cad-nome').value.trim(),
+    apelido_desejado: document.getElementById('cad-apelido').value.trim(),
+    telefone: document.getElementById('cad-telefone').value.trim(),
+    email: document.getElementById('cad-email').value.trim(),
+    data_nascimento: document.getElementById('cad-nascimento').value || null,
+    moto_modelo: document.getElementById('cad-moto').value.trim(),
+    mensagem: document.getElementById('cad-mensagem').value.trim()
+  };
+  if(!dados.nome || !dados.telefone){ alert('Informe ao menos o nome e o telefone.'); return; }
+
+  if(state.apiBase){
+    try{
+      var res = await fetch(state.apiBase.replace(/\/$/,'') + '/solicitacoes', {
+        method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(dados)
+      });
+      if(!res.ok) throw new Error('Falha ao enviar (HTTP '+res.status+')');
+    }catch(e){ alert('Erro ao enviar solicitação: '+e.message); return; }
+  } else {
+    dados.id = Math.max.apply(null, demoSolicitacoes.map(function(s){return s.id;}).concat([0])) + 1;
+    dados.status = 'Pendente';
+    dados.data_solicitacao = new Date().toISOString();
+    demoSolicitacoes.unshift(dados);
+  }
+
+  document.getElementById('cadastro-conteudo').innerHTML =
+    '<div class="confirmacao-box">' +
+      '<div class="icone">🏍️</div>' +
+      '<h3>Solicitação enviada!</h3>' +
+      '<p>Recebemos seu pedido de ingresso, '+dados.nome.split(' ')[0]+'.<br>A diretoria do Imaculados M.C. vai analisar e entrar em contato pelo telefone informado.</p>' +
+    '</div>';
+}
+
+/* ============ Solicitações (admin) ============ */
+async function renderSolicitacoes(body){
+  body.innerHTML =
+    '<div class="painel-titulo">Solicitações de ingresso</div>' +
+    '<div class="painel-sub">Pedidos recebidos pelo site público, aguardando análise da diretoria</div>' +
+    '<div id="lista-solicitacoes"></div>';
+
+  var lista = demoSolicitacoes;
+  if(state.apiBase){
+    try{ lista = await apiFetch('/solicitacoes'); }catch(e){ /* mantém mock em caso de falha */ }
+  }
+  lista = lista.slice().sort(function(a,b){
+    if(a.status==='Pendente' && b.status!=='Pendente') return -1;
+    if(a.status!=='Pendente' && b.status==='Pendente') return 1;
+    return new Date(b.data_solicitacao) - new Date(a.data_solicitacao);
+  });
+
+  var container = document.getElementById('lista-solicitacoes');
+  if(lista.length===0){
+    container.innerHTML = '<div class="card"><div class="vazio">Nenhuma solicitação recebida ainda.</div></div>';
+    return;
+  }
+
+  container.innerHTML = lista.map(function(s){
+    var classeStatus = s.status==='Aprovada' ? 'status-ativo' : (s.status==='Recusada' ? 'status-inativo' : 'status-pendente');
+    return '<div class="solic-card" id="solic-'+s.id+'">' +
+      '<div class="solic-topo">' +
+        '<div>' +
+          '<div class="solic-nome">'+s.nome+(s.apelido_desejado?' "'+s.apelido_desejado+'"':'')+'</div>' +
+          '<div class="solic-meta">'+s.telefone+(s.email?' · '+s.email:'')+(s.moto_modelo?' · '+s.moto_modelo:'')+'</div>' +
+          '<div class="solic-meta">Enviado em '+fmtDataHora(s.data_solicitacao)+'</div>' +
+        '</div>' +
+        '<span class="status-pill '+classeStatus+'" id="status-pill-'+s.id+'">'+s.status+'</span>' +
+      '</div>' +
+      (s.mensagem ? '<div class="solic-msg">"'+s.mensagem+'"</div>' : '') +
+      '<div id="acoes-'+s.id+'">' +
+      (s.status==='Pendente' ?
+        '<div class="solic-acoes">' +
+          '<button class="btn-aprovar" onclick="aprovarSolicitacao('+s.id+')">Aprovar</button>' +
+          '<button class="btn-recusar" onclick="recusarSolicitacao('+s.id+')">Recusar</button>' +
+        '</div>'
+        : '') +
+      '</div>' +
+      '<div id="credenciais-'+s.id+'"></div>' +
+    '</div>';
+  }).join('');
+}
+
+async function aprovarSolicitacao(id){
+  if(!confirm('Aprovar esta solicitação? Um novo integrante (Prospero) será criado com acesso ao portal.')) return;
+
+  var loginGerado, senhaTemp;
+  if(state.apiBase){
+    try{
+      var resultado = await apiFetch('/solicitacoes/'+id+'/aprovar', {method:'POST'});
+      loginGerado = resultado.login_gerado;
+      senhaTemp = resultado.senha_temporaria;
+    }catch(e){ alert('Erro ao aprovar na API: '+e.message); return; }
+  } else {
+    var s = demoSolicitacoes.find(function(x){return x.id===id;});
+    if(!s) return;
+    s.status = 'Aprovada';
+    var partes = s.nome.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z ]/g,'').split(' ');
+    loginGerado = (partes[0]||'integrante') + (partes.length>1?partes[partes.length-1]:'');
+    senhaTemp = Math.random().toString(36).slice(-8);
+    demoIntegrantes.push({
+      id: Math.max.apply(null, demoIntegrantes.map(function(i){return i.id;})) + 1,
+      nome: s.nome, apelido: s.apelido_desejado, cargo:'Prospero', status:'Ativo',
+      moto_modelo: s.moto_modelo||'', moto_placa:'', telefone: s.telefone, email: s.email||''
+    });
+  }
+
+  var pill = document.getElementById('status-pill-'+id);
+  if(pill){ pill.textContent='Aprovada'; pill.className='status-pill status-ativo'; }
+  var acoes = document.getElementById('acoes-'+id);
+  if(acoes){ acoes.innerHTML=''; }
+  var box = document.getElementById('credenciais-'+id);
+  if(box){
+    box.innerHTML = '<div class="credenciais-box">' +
+      '✅ Integrante aprovado! Repasse o acesso:<br>' +
+      '<div><b>Login:</b> '+loginGerado+'</div>' +
+      '<div><b>Senha temporária:</b> '+senhaTemp+'</div>' +
+    '</div>';
+  }
+}
+
+async function recusarSolicitacao(id){
+  if(!confirm('Recusar esta solicitação?')) return;
+  if(state.apiBase){
+    try{ await apiFetch('/solicitacoes/'+id+'/recusar', {method:'POST'}); }
+    catch(e){ alert('Erro ao recusar na API: '+e.message); return; }
+  } else {
+    var s = demoSolicitacoes.find(function(x){return x.id===id;});
+    if(s) s.status = 'Recusada';
+  }
+  var pill = document.getElementById('status-pill-'+id);
+  if(pill){ pill.textContent='Recusada'; pill.className='status-pill status-inativo'; }
+  var acoes = document.getElementById('acoes-'+id);
+  if(acoes){ acoes.innerHTML=''; }
 }
 
 /* ============ Início ============ */

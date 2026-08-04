@@ -134,3 +134,24 @@ class Documento(Base):
     integrante_id = Column(Integer, ForeignKey("integrantes.id"), nullable=True)
 
     integrante = relationship("Integrante")
+
+
+class SolicitacaoCadastro(Base):
+    """Pedido de ingresso enviado publicamente por quem quer entrar no M.C."""
+    __tablename__ = "solicitacoes_cadastro"
+
+    id = Column(Integer, primary_key=True, index=True)
+    nome = Column(String(150), nullable=False)
+    apelido_desejado = Column(String(80))
+    telefone = Column(String(20), nullable=False)
+    email = Column(String(120))
+    data_nascimento = Column(Date, nullable=True)
+    moto_modelo = Column(String(100))
+    mensagem = Column(Text)  # motivação / como conheceu o M.C.
+    status = Column(String(15), default="Pendente")  # Pendente, Aprovada, Recusada
+    data_solicitacao = Column(DateTime, default=datetime.utcnow)
+    analisado_por_id = Column(Integer, ForeignKey("integrantes.id"), nullable=True)
+    data_analise = Column(DateTime, nullable=True)
+    integrante_criado_id = Column(Integer, ForeignKey("integrantes.id"), nullable=True)
+
+    analisado_por = relationship("Integrante", foreign_keys=[analisado_por_id])

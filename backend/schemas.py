@@ -176,6 +176,37 @@ class DocumentoOut(BaseModel):
     integrante_nome: Optional[str] = None
 
 
+# ---------- Solicitações de cadastro (público) ----------
+class SolicitacaoCreate(BaseModel):
+    nome: str
+    apelido_desejado: Optional[str] = None
+    telefone: str
+    email: Optional[str] = None
+    data_nascimento: Optional[date] = None
+    moto_modelo: Optional[str] = None
+    mensagem: Optional[str] = None
+
+
+class SolicitacaoOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    nome: str
+    apelido_desejado: Optional[str] = None
+    telefone: str
+    email: Optional[str] = None
+    data_nascimento: Optional[date] = None
+    moto_modelo: Optional[str] = None
+    mensagem: Optional[str] = None
+    status: str
+    data_solicitacao: datetime
+
+
+class SolicitacaoAprovarOut(BaseModel):
+    integrante_id: int
+    login_gerado: str
+    senha_temporaria: str
+
+
 # ---------- Dashboard ----------
 class AniversarianteResumo(BaseModel):
     id: int
