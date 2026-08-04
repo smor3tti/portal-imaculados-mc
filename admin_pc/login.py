@@ -44,7 +44,7 @@ class TelaLogin(QWidget):
         brasao_label.setAlignment(Qt.AlignCenter)
         card_layout.addWidget(brasao_label)
 
-        titulo = QLabel("IMACULADOS MOTOR CLUBE")
+        titulo = QLabel("IMACULADOS MOTO CLUBE")
         titulo.setObjectName("TituloClube")
         titulo.setAlignment(Qt.AlignCenter)
         titulo.setWordWrap(True)
