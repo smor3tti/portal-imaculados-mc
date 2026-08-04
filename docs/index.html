@@ -479,7 +479,17 @@ function fmtDataHora(iso){
   var mm = String(d.getMinutes()).padStart(2,'0');
   return dia+'/'+mes+' às '+hh+':'+mm;
 }
-function integranteNome(id){ var i=demoIntegrantes.find(function(x){return x.id===id;}); return i?(i.nome+' "'+i.apelido+'"'):('#'+id); }
+/* Listas em uso: recebem os dados da API quando conectada; caso contrário,
+   apontam para os arrays de demonstração. */
+var integrantesAtuais = null;
+var mensalidadesAtuais = null;
+function listaIntegrantes(){ return integrantesAtuais || demoIntegrantes; }
+function listaMensalidades(){ return mensalidadesAtuais || demoMensalidades; }
+
+function integranteNome(id){
+  var i = listaIntegrantes().find(function(x){return x.id===id;});
+  return i ? (i.nome + (i.apelido ? ' "'+i.apelido+'"' : '')) : ('#'+id);
+}
 
 async function apiFetch(path, options){
   options = options || {};
@@ -617,7 +627,9 @@ function contadorSolicitacoesPendentesBadge(){
 }
 
 function demoBanner(){
-  var status = state.apiBase ? ('Conectado a: '+state.apiBase) : 'Modo demonstração ativo — dados fictícios';
+  var status = state.apiBase
+    ? ('Conectado a: '+state.apiBase)
+    : 'Modo demonstração — as alterações valem só nesta sessão e se perdem ao recarregar a página. Conecte a API para salvar de verdade.';
   return '<div class="demo-banner">' +
     '<span>'+status+'</span>' +
     '<div class="grp">' +
@@ -630,9 +642,9 @@ function demoBanner(){
 /* ============ Dashboard ============ */
 async function renderDashboard(body){
   var d = demoDashboard;
-  var totalAtivos = demoIntegrantes.filter(function(i){return i.status==='Ativo';}).length;
-  var pagas = demoMensalidades.filter(function(m){return m.pago;}).length;
-  var pct = demoMensalidades.length ? Math.round(pagas/demoMensalidades.length*1000)/10 : 0;
+  var totalAtivos = listaIntegrantes().filter(function(i){return i.status==='Ativo';}).length;
+  var pagas = listaMensalidades().filter(function(m){return m.pago;}).length;
+  var pct = listaMensalidades().length ? Math.round(pagas/listaMensalidades().length*1000)/10 : 0;
   var aniversariantes = demoAniversariantes;
   var comunicados = demoComunicados.slice(0,3);
 
@@ -679,7 +691,7 @@ async function renderDashboard(body){
 }
 
 /* ============ Membros ============ */
-function renderMembros(body){
+async function renderMembros(body){
   body.innerHTML =
     '<div class="painel-titulo">Integrantes</div>' +
     '<div class="painel-sub">Cadastro de membros da irmandade</div>' +
@@ -691,13 +703,20 @@ function renderMembros(body){
       '<thead><tr><th>Nome</th><th>Cargo</th><th>Status</th><th>Moto</th><th>Placa</th><th>Contato</th><th></th></tr></thead>' +
       '<tbody id="tbody-membros"></tbody>' +
     '</table></div>';
+
+  if(state.apiBase){
+    try{ integrantesAtuais = await apiFetch('/integrantes'); }
+    catch(e){ /* sem conexão: segue com os dados de demonstração */ }
+  } else {
+    integrantesAtuais = null;
+  }
   filtrarMembros(state.membrosFiltro);
 }
 
 function filtrarMembros(v){
   state.membrosFiltro = v || '';
   var termo = state.membrosFiltro.toLowerCase();
-  var lista = demoIntegrantes.filter(function(i){
+  var lista = listaIntegrantes().filter(function(i){
     return i.nome.toLowerCase().indexOf(termo)>-1 || (i.apelido||'').toLowerCase().indexOf(termo)>-1;
   });
   var tbody = document.getElementById('tbody-membros');
@@ -720,7 +739,7 @@ function filtrarMembros(v){
 }
 
 function abrirModalEditarIntegrante(id){
-  var i = demoIntegrantes.find(function(x){return x.id===id;});
+  var i = listaIntegrantes().find(function(x){return x.id===id;});
   if(!i) return;
   var opcoesCargo = CARGOS.map(function(c){
     return '<option'+(i.cargo===c?' selected':'')+'>'+c+'</option>';
@@ -777,8 +796,8 @@ async function salvarEdicaoIntegrante(id){
     try{ await apiFetch('/integrantes/'+id, {method:'PUT', body:JSON.stringify(dados)}); }
     catch(e){ alert('Erro ao salvar na API: '+e.message); return; }
   } else {
-    var i = demoIntegrantes.find(function(x){return x.id===id;});
-    if(i) Object.keys(dados).forEach(function(k){ i[k] = dados[k]; });
+    var alvo = demoIntegrantes.find(function(x){return x.id===id;});
+    if(alvo) Object.keys(dados).forEach(function(k){ alvo[k] = dados[k]; });
   }
   fecharModal();
   renderMembros(document.getElementById('view-body'));
@@ -840,7 +859,7 @@ async function salvarNovoIntegrante(){
 function fecharModal(){ document.getElementById('modal-root').innerHTML=''; }
 
 /* ============ Mensalidades ============ */
-function renderMensalidades(body){
+async function renderMensalidades(body){
   body.innerHTML =
     '<div class="painel-titulo">Mensalidades</div>' +
     '<div class="painel-sub">Referência 2026-08</div>' +
@@ -854,13 +873,20 @@ function renderMensalidades(body){
       '<thead><tr><th>Integrante</th><th>Referência</th><th>Vencimento</th><th>Valor</th><th>Status</th><th>Forma</th><th></th></tr></thead>' +
       '<tbody id="tbody-mensalidades"></tbody>' +
     '</table></div>';
+
+  if(state.apiBase){
+    try{ mensalidadesAtuais = await apiFetch('/mensalidades'); }
+    catch(e){ /* sem conexão: segue com os dados de demonstração */ }
+  } else {
+    mensalidadesAtuais = null;
+  }
   desenharMensalidades();
 }
 
 function filtrarMensalidades(f){ state.mensalidadesFiltro = f; renderMensalidades(document.getElementById('view-body')); }
 
 function desenharMensalidades(){
-  var lista = demoMensalidades.filter(function(m){
+  var lista = listaMensalidades().filter(function(m){
     return state.mensalidadesFiltro==='pendentes' ? !m.pago : true;
   });
   var tbody = document.getElementById('tbody-mensalidades');
@@ -887,7 +913,7 @@ async function marcarPaga(id){
       await apiFetch('/mensalidades/'+id+'/pagar', {method:'PATCH', body:JSON.stringify({forma_pagamento:'Pix'})});
     }catch(e){ alert('Erro ao registrar pagamento: '+e.message); return; }
   }
-  var m = demoMensalidades.find(function(x){return x.id===id;});
+  var m = listaMensalidades().find(function(x){return x.id===id;});
   if(m){ m.pago=true; m.forma_pagamento='Pix'; }
   desenharMensalidades();
 }
