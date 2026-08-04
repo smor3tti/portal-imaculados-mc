@@ -106,3 +106,16 @@ class Caixa(Base):
     descricao = Column(String(200), nullable=False)
     valor = Column(Numeric(10, 2), nullable=False)
     data = Column(Date, default=date.today)
+
+
+class Comunicado(Base):
+    __tablename__ = "comunicados"
+
+    id = Column(Integer, primary_key=True, index=True)
+    titulo = Column(String(150), nullable=False)
+    mensagem = Column(Text, nullable=False)
+    fixado = Column(Boolean, default=False)
+    data = Column(DateTime, default=datetime.utcnow)
+    autor_id = Column(Integer, ForeignKey("integrantes.id"), nullable=True)
+
+    autor = relationship("Integrante")

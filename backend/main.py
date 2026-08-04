@@ -85,12 +85,41 @@ def resumo_dashboard(
         .first()
     )
 
+    mes_atual = date.today().month
+    aniversariantes = (
+        db.query(models.Integrante)
+        .filter(models.Integrante.status == "Ativo")
+        .filter(models.Integrante.data_nascimento.isnot(None))
+        .filter(func.extract("month", models.Integrante.data_nascimento) == mes_atual)
+        .all()
+    )
+
+    ultimos_comunicados = (
+        db.query(models.Comunicado)
+        .order_by(models.Comunicado.fixado.desc(), models.Comunicado.data.desc())
+        .limit(3)
+        .all()
+    )
+
     return schemas.DashboardResumo(
         total_integrantes=total_integrantes,
         percentual_mensalidades_pagas=round(percentual, 1),
         saldo_caixa=saldo,
         proximo_evento_nome=proximo_evento.nome if proximo_evento else None,
         proximo_evento_data=proximo_evento.data if proximo_evento else None,
+        aniversariantes_mes=[
+            schemas.AniversarianteResumo(
+                id=i.id, nome=i.nome, apelido=i.apelido, data_nascimento=i.data_nascimento
+            )
+            for i in aniversariantes
+        ],
+        ultimos_comunicados=[
+            schemas.ComunicadoResumo(
+                id=c.id, titulo=c.titulo, data=c.data,
+                autor_nome=c.autor.nome if c.autor else None,
+            )
+            for c in ultimos_comunicados
+        ],
     )
 
 
@@ -357,3 +386,76 @@ def confirmar_presenca(
     item = schemas.PresencaOut.model_validate(presenca)
     item.integrante_nome = presenca.integrante.nome if presenca.integrante else None
     return item
+
+
+# ---------- Comunicados ----------
+def _comunicado_para_out(c: models.Comunicado) -> schemas.ComunicadoOut:
+    item = schemas.ComunicadoOut.model_validate(c)
+    item.autor_nome = c.autor.nome if c.autor else None
+    return item
+
+
+@app.get("/comunicados", response_model=list[schemas.ComunicadoOut])
+def listar_comunicados(
+    db: Session = Depends(get_db),
+    usuario: models.Usuario = Depends(auth.obter_usuario_atual),
+):
+    comunicados = (
+        db.query(models.Comunicado)
+        .order_by(models.Comunicado.fixado.desc(), models.Comunicado.data.desc())
+        .all()
+    )
+    return [_comunicado_para_out(c) for c in comunicados]
+
+
+@app.post("/comunicados", response_model=schemas.ComunicadoOut)
+def criar_comunicado(
+    dados: schemas.ComunicadoCreate,
+    db: Session = Depends(get_db),
+    usuario: models.Usuario = Depends(
+        auth.exigir_cargo("Presidente", "Vice-Presidente", "Diretor", "Disciplina")
+    ),
+):
+    novo = models.Comunicado(**dados.model_dump(), autor_id=usuario.integrante_id)
+    db.add(novo)
+    db.commit()
+    db.refresh(novo)
+    return _comunicado_para_out(novo)
+
+
+@app.put("/comunicados/{comunicado_id}", response_model=schemas.ComunicadoOut)
+def atualizar_comunicado(
+    comunicado_id: int,
+    dados: schemas.ComunicadoUpdate,
+    db: Session = Depends(get_db),
+    usuario: models.Usuario = Depends(
+        auth.exigir_cargo("Presidente", "Vice-Presidente", "Diretor", "Disciplina")
+    ),
+):
+    comunicado = db.query(models.Comunicado).filter(models.Comunicado.id == comunicado_id).first()
+    if not comunicado:
+        raise HTTPException(status_code=404, detail="Comunicado não encontrado")
+
+    for campo, valor in dados.model_dump(exclude_unset=True).items():
+        setattr(comunicado, campo, valor)
+
+    db.commit()
+    db.refresh(comunicado)
+    return _comunicado_para_out(comunicado)
+
+
+@app.delete("/comunicados/{comunicado_id}")
+def excluir_comunicado(
+    comunicado_id: int,
+    db: Session = Depends(get_db),
+    usuario: models.Usuario = Depends(
+        auth.exigir_cargo("Presidente", "Vice-Presidente", "Diretor", "Disciplina")
+    ),
+):
+    comunicado = db.query(models.Comunicado).filter(models.Comunicado.id == comunicado_id).first()
+    if not comunicado:
+        raise HTTPException(status_code=404, detail="Comunicado não encontrado")
+
+    db.delete(comunicado)
+    db.commit()
+    return {"detail": "Comunicado excluído"}

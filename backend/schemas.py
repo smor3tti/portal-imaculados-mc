@@ -1,7 +1,7 @@
 """
 Portal Imaculados M.C. - Schemas Pydantic (entrada/saída da API)
 """
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
 
@@ -138,10 +138,51 @@ class PresencaAtualizar(BaseModel):
     confirmacao: str  # Confirmado, Recusado, Pendente
 
 
+# ---------- Comunicados ----------
+class ComunicadoBase(BaseModel):
+    titulo: str
+    mensagem: str
+    fixado: bool = False
+
+
+class ComunicadoCreate(ComunicadoBase):
+    pass
+
+
+class ComunicadoUpdate(BaseModel):
+    titulo: Optional[str] = None
+    mensagem: Optional[str] = None
+    fixado: Optional[bool] = None
+
+
+class ComunicadoOut(ComunicadoBase):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    data: datetime
+    autor_id: Optional[int] = None
+    autor_nome: Optional[str] = None
+
+
 # ---------- Dashboard ----------
+class AniversarianteResumo(BaseModel):
+    id: int
+    nome: str
+    apelido: Optional[str] = None
+    data_nascimento: date
+
+
+class ComunicadoResumo(BaseModel):
+    id: int
+    titulo: str
+    data: datetime
+    autor_nome: Optional[str] = None
+
+
 class DashboardResumo(BaseModel):
     total_integrantes: int
     percentual_mensalidades_pagas: float
     saldo_caixa: Decimal
     proximo_evento_nome: Optional[str] = None
     proximo_evento_data: Optional[date] = None
+    aniversariantes_mes: list[AniversarianteResumo] = []
+    ultimos_comunicados: list[ComunicadoResumo] = []

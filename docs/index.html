@@ -241,9 +241,33 @@ var demoPresencas = {
 };
 var USUARIO_DEMO_ID = 1; // integrante logado no modo demonstração (Presidente)
 
+var demoComunicados = [
+  {id:1, titulo:'Reunião geral dia 20/08', mensagem:'Pauta: organização do Encontro Regional e definição do trajeto do próximo passeio. Presença obrigatória de todos os cargos.', fixado:true, data:'2026-08-02T14:00:00', autor_id:1},
+  {id:2, titulo:'Nova identidade visual do M.C.', mensagem:'O brasão oficial foi atualizado no site e nos materiais do clube. Confiram o resultado no Portal.', fixado:false, data:'2026-07-28T10:30:00', autor_id:4},
+  {id:3, titulo:'Campanha do agasalho', mensagem:'Estamos arrecadando roupas de frio para doação em agosto. Tragam suas doações para a sede.', fixado:false, data:'2026-07-20T09:15:00', autor_id:3}
+];
+
+var MES_ATUAL = new Date('2026-08-04').getMonth() + 1;
+var demoAniversariantes = demoIntegrantes.filter(function(i){
+  return [8,15,3].indexOf(i.id) > -1; // ids fictícios usados só para popular a demonstração
+}).map(function(i, idx){
+  var dias = ['12','19','27'];
+  return {id:i.id, nome:i.nome, apelido:i.apelido, data_nascimento:'1990-08-'+dias[idx]};
+});
+
 /* ============ Helpers ============ */
 function fmtMoeda(v){ return 'R$ ' + Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2, maximumFractionDigits:2}); }
 function fmtData(d){ if(!d) return '—'; var p=d.split('-'); return p[2]+'/'+p[1]+'/'+p[0]; }
+function fmtDataHora(iso){
+  if(!iso) return '';
+  var d = new Date(iso);
+  if(isNaN(d.getTime())) return iso;
+  var dia = String(d.getDate()).padStart(2,'0');
+  var mes = String(d.getMonth()+1).padStart(2,'0');
+  var hh = String(d.getHours()).padStart(2,'0');
+  var mm = String(d.getMinutes()).padStart(2,'0');
+  return dia+'/'+mes+' às '+hh+':'+mm;
+}
 function integranteNome(id){ var i=demoIntegrantes.find(function(x){return x.id===id;}); return i?(i.nome+' "'+i.apelido+'"'):('#'+id); }
 
 async function apiFetch(path, options){
@@ -306,7 +330,8 @@ var menuItens = [
   {id:'dashboard', label:'Dashboard'},
   {id:'membros', label:'Integrantes'},
   {id:'mensalidades', label:'Mensalidades'},
-  {id:'eventos', label:'Eventos'}
+  {id:'eventos', label:'Eventos'},
+  {id:'comunicados', label:'Comunicados'}
 ];
 
 function irPara(view){ state.view = view; render(); }
@@ -340,6 +365,7 @@ function render(){
   else if(state.view==='membros') renderMembros(body);
   else if(state.view==='mensalidades') renderMensalidades(body);
   else if(state.view==='eventos') renderEventos(body);
+  else if(state.view==='comunicados') renderComunicados(body);
 }
 
 function demoBanner(){
@@ -359,9 +385,15 @@ async function renderDashboard(body){
   var totalAtivos = demoIntegrantes.filter(function(i){return i.status==='Ativo';}).length;
   var pagas = demoMensalidades.filter(function(m){return m.pago;}).length;
   var pct = demoMensalidades.length ? Math.round(pagas/demoMensalidades.length*1000)/10 : 0;
+  var aniversariantes = demoAniversariantes;
+  var comunicados = demoComunicados.slice(0,3);
 
   if(state.apiBase){
-    try{ d = await apiFetch('/dashboard'); }catch(e){}
+    try{
+      d = await apiFetch('/dashboard');
+      aniversariantes = d.aniversariantes_mes || [];
+      comunicados = d.ultimos_comunicados || [];
+    }catch(e){}
   }
 
   body.innerHTML =
@@ -373,6 +405,28 @@ async function renderDashboard(body){
         '<div class="progress"><div class="progress-chunk" style="width:'+(d.percentual_mensalidades_pagas!==undefined?d.percentual_mensalidades_pagas:pct)+'%"></div></div></div>' +
       '<div class="card card-financeiro"><div class="card-titulo">Saldo em caixa</div><div class="card-valor mono">'+ fmtMoeda(d.saldo_caixa!==undefined?d.saldo_caixa:d) +'</div></div>' +
       '<div class="card"><div class="card-titulo">Próximo evento</div><div class="card-valor" style="font-size:16px;">'+ (d.proximo_evento_nome||'—') +'</div><div class="card-sub">'+ fmtData(d.proximo_evento_data) +'</div></div>' +
+    '</div>' +
+    '<div class="cards-grid" style="grid-template-columns:1fr 1fr;">' +
+      '<div class="card">' +
+        '<div class="card-titulo">🎂 Aniversariantes do mês</div>' +
+        (aniversariantes.length ?
+          '<div style="margin-top:8px;">' + aniversariantes.map(function(a){
+            return '<div style="display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid var(--border);font-size:13px;">' +
+              '<span>'+a.nome+(a.apelido?' "'+a.apelido+'"':'')+'</span>' +
+              '<span class="mono" style="color:var(--gold);">'+fmtData(a.data_nascimento)+'</span></div>';
+          }).join('') + '</div>'
+          : '<div class="vazio" style="padding:16px 0;">Nenhum aniversariante este mês.</div>') +
+      '</div>' +
+      '<div class="card">' +
+        '<div class="card-titulo">📢 Últimos comunicados</div>' +
+        (comunicados.length ?
+          '<div style="margin-top:8px;">' + comunicados.map(function(c){
+            return '<div style="padding:8px 0;border-top:1px solid var(--border);">' +
+              '<div style="font-size:13px;font-weight:600;">'+(c.fixado?'📌 ':'')+c.titulo+'</div>' +
+              '<div style="font-size:11px;color:var(--muted);margin-top:2px;">'+(c.autor_nome||'')+' · '+fmtDataHora(c.data)+'</div></div>';
+          }).join('') + '</div>'
+          : '<div class="vazio" style="padding:16px 0;">Nenhum comunicado ainda.</div>') +
+      '</div>' +
     '</div>';
 }
 
@@ -655,6 +709,91 @@ async function salvarNovoEvento(){
   }
   fecharModal();
   renderEventos(document.getElementById('view-body'));
+}
+
+/* ============ Comunicados ============ */
+async function renderComunicados(body){
+  body.innerHTML =
+    '<div class="painel-titulo">Comunicados</div>' +
+    '<div class="painel-sub">Avisos e informes da diretoria para toda a irmandade</div>' +
+    '<div class="toolbar"><button class="btn-primario" onclick="abrirModalNovoComunicado()">+ Novo comunicado</button></div>' +
+    '<div id="lista-comunicados" style="display:flex;flex-direction:column;gap:12px;"></div>';
+
+  var lista = demoComunicados;
+  if(state.apiBase){
+    try{ lista = await apiFetch('/comunicados'); }catch(e){ /* mantém mock em caso de falha */ }
+  }
+  lista = lista.slice().sort(function(a,b){
+    if(!!a.fixado !== !!b.fixado) return a.fixado ? -1 : 1;
+    return new Date(b.data) - new Date(a.data);
+  });
+
+  var container = document.getElementById('lista-comunicados');
+  if(lista.length===0){
+    container.innerHTML = '<div class="card"><div class="vazio">Nenhum comunicado publicado ainda.</div></div>';
+    return;
+  }
+
+  container.innerHTML = lista.map(function(c){
+    return '<div class="card" style="'+(c.fixado?'border-color:var(--gold);':'')+'">' +
+      '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">' +
+        '<div style="font-size:15px;font-weight:700;color:var(--cream);">'+(c.fixado?'📌 ':'')+c.titulo+'</div>' +
+        '<button class="acao-link" style="color:var(--danger);" onclick="excluirComunicado('+c.id+')">Excluir</button>' +
+      '</div>' +
+      '<div style="font-size:11px;color:var(--muted);margin:4px 0 10px;">'+(c.autor_nome||integranteNome(c.autor_id))+' · '+fmtDataHora(c.data)+'</div>' +
+      '<div style="font-size:13.5px;color:var(--cream);line-height:1.6;">'+c.mensagem+'</div>' +
+    '</div>';
+  }).join('');
+}
+
+function abrirModalNovoComunicado(){
+  document.getElementById('modal-root').innerHTML =
+    '<div class="modal-overlay" onclick="if(event.target===this) fecharModal()">' +
+      '<div class="modal">' +
+        '<h3>Novo comunicado</h3>' +
+        '<div class="campo"><label>Título</label><input type="text" id="novo-com-titulo"></div>' +
+        '<div class="campo"><label>Mensagem</label><input type="text" id="novo-com-mensagem"></div>' +
+        '<div class="campo" style="display:flex;align-items:center;gap:8px;">' +
+          '<input type="checkbox" id="novo-com-fixado" style="width:auto;"> <label style="margin:0;text-transform:none;font-size:13px;color:var(--cream);" for="novo-com-fixado">Fixar no topo</label>' +
+        '</div>' +
+        '<div class="modal-acoes">' +
+          '<button class="btn-secundario" onclick="fecharModal()">Cancelar</button>' +
+          '<button class="btn-entrar" style="width:auto;padding:9px 20px;" onclick="salvarNovoComunicado()">Publicar</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+}
+
+async function salvarNovoComunicado(){
+  var novo = {
+    titulo: document.getElementById('novo-com-titulo').value.trim(),
+    mensagem: document.getElementById('novo-com-mensagem').value.trim(),
+    fixado: document.getElementById('novo-com-fixado').checked
+  };
+  if(!novo.titulo || !novo.mensagem){ alert('Preencha o título e a mensagem.'); return; }
+
+  if(state.apiBase){
+    try{ await apiFetch('/comunicados', {method:'POST', body:JSON.stringify(novo)}); }
+    catch(e){ alert('Erro ao publicar na API: '+e.message); return; }
+  } else {
+    novo.id = Math.max.apply(null, demoComunicados.map(function(c){return c.id;})) + 1;
+    novo.autor_id = USUARIO_DEMO_ID;
+    novo.data = new Date().toISOString();
+    demoComunicados.unshift(novo);
+  }
+  fecharModal();
+  renderComunicados(document.getElementById('view-body'));
+}
+
+async function excluirComunicado(id){
+  if(!confirm('Excluir este comunicado?')) return;
+  if(state.apiBase){
+    try{ await apiFetch('/comunicados/'+id, {method:'DELETE'}); }
+    catch(e){ alert('Erro ao excluir na API: '+e.message); return; }
+  } else {
+    demoComunicados = demoComunicados.filter(function(c){return c.id!==id;});
+  }
+  renderComunicados(document.getElementById('view-body'));
 }
 
 /* ============ Início ============ */
