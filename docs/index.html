@@ -215,6 +215,28 @@ tr:hover td{background:#191919;}
 .credenciais-box div{margin:4px 0;}
 .credenciais-box b{color:var(--gold);}
 
+/* ---------- Acessos e permissões ---------- */
+.acesso-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px 20px;margin-bottom:12px;}
+.acesso-topo{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;}
+.acesso-nome{font-size:15px;font-weight:700;color:var(--cream);}
+.acesso-meta{color:var(--muted);font-size:12px;margin-top:3px;}
+.acesso-acoes{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+.acesso-acoes select{background:var(--surface-2);border:1px solid var(--border-strong);border-radius:8px;padding:7px 10px;color:var(--cream);font-size:12px;}
+.acesso-acoes select:focus{outline:none;border-color:var(--gold);}
+.perm-grupo{margin-top:14px;}
+.perm-grupo-titulo{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin:12px 0 6px;}
+.perm-linha{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 0;border-top:1px solid var(--border);}
+.perm-label{font-size:13px;color:var(--cream);}
+.perm-origem{font-size:10.5px;color:var(--muted-2);margin-top:1px;}
+.perm-origem.custom{color:var(--gold);}
+.chave-switch{position:relative;display:inline-block;width:42px;height:23px;flex-shrink:0;}
+.chave-switch input{opacity:0;width:0;height:0;}
+.chave-trilho{position:absolute;cursor:pointer;inset:0;background:#333;border-radius:23px;transition:.2s;}
+.chave-trilho:before{position:absolute;content:"";height:17px;width:17px;left:3px;bottom:3px;background:#888;border-radius:50%;transition:.2s;}
+.chave-switch input:checked + .chave-trilho{background:rgba(212,175,55,0.35);}
+.chave-switch input:checked + .chave-trilho:before{transform:translateX(19px);background:var(--gold);}
+.perm-rodape{display:flex;gap:8px;justify-content:flex-end;margin-top:16px;flex-wrap:wrap;}
+
 @media (max-width:760px){
   .shell{flex-direction:column;}
   .sidebar{width:100%;flex-direction:row;overflow-x:auto;}
@@ -319,10 +341,61 @@ var state = {
   screen:'publico',
   view:'dashboard',
   token:null, cargo:null, nome:null,
+  permissoes:[],
   apiBase:'',
   membrosFiltro:'',
   mensalidadesFiltro:'todas',
 };
+
+/* ============ Permissões ============ */
+var CATALOGO_PERMISSOES = [
+  {chave:'ver_dashboard', label:'Ver o dashboard', grupo:'Geral'},
+  {chave:'ver_integrantes', label:'Ver a lista de integrantes', grupo:'Integrantes'},
+  {chave:'editar_integrantes', label:'Cadastrar e editar integrantes', grupo:'Integrantes'},
+  {chave:'excluir_integrantes', label:'Excluir integrantes', grupo:'Integrantes'},
+  {chave:'ver_financeiro', label:'Ver mensalidades e caixa', grupo:'Financeiro'},
+  {chave:'editar_financeiro', label:'Lançar mensalidades e registrar pagamentos', grupo:'Financeiro'},
+  {chave:'ver_eventos', label:'Ver eventos e confirmar presença', grupo:'Eventos'},
+  {chave:'editar_eventos', label:'Criar, editar e excluir eventos', grupo:'Eventos'},
+  {chave:'ver_comunicados', label:'Ver comunicados', grupo:'Comunicados'},
+  {chave:'editar_comunicados', label:'Publicar e excluir comunicados', grupo:'Comunicados'},
+  {chave:'ver_documentos', label:'Ver e baixar documentos', grupo:'Documentos'},
+  {chave:'editar_documentos', label:'Enviar e excluir documentos', grupo:'Documentos'},
+  {chave:'ver_solicitacoes', label:'Ver solicitações de ingresso', grupo:'Solicitações'},
+  {chave:'analisar_solicitacoes', label:'Aprovar e recusar solicitações', grupo:'Solicitações'},
+  {chave:'gerenciar_acessos', label:'Gerenciar acessos e permissões', grupo:'Administração'}
+];
+
+var TODAS_PERMISSOES = CATALOGO_PERMISSOES.map(function(p){return p.chave;});
+var BASICO = ['ver_dashboard','ver_eventos','ver_comunicados'];
+var INTEGRANTE_PERM = BASICO.concat(['ver_integrantes','ver_documentos']);
+var DIRETORIA_PERM = INTEGRANTE_PERM.concat(['editar_integrantes','ver_financeiro','editar_eventos','editar_comunicados','editar_documentos','ver_solicitacoes','analisar_solicitacoes']);
+
+var PADROES_POR_CARGO = {
+  'Presidente': TODAS_PERMISSOES.slice(),
+  'Vice-Presidente': DIRETORIA_PERM.slice(),
+  'Diretor': DIRETORIA_PERM.slice(),
+  'Tesoureiro': INTEGRANTE_PERM.concat(['ver_financeiro','editar_financeiro','editar_documentos']),
+  'Disciplina': INTEGRANTE_PERM.concat(['editar_comunicados']),
+  'Integrante': INTEGRANTE_PERM.slice(),
+  'Prospero': BASICO.slice()
+};
+
+var CARGOS = Object.keys(PADROES_POR_CARGO);
+
+function permissoesEfetivas(cargo, customizadas){
+  var set = {};
+  (PADROES_POR_CARGO[cargo] || BASICO).forEach(function(c){ set[c] = true; });
+  Object.keys(customizadas || {}).forEach(function(c){
+    if(TODAS_PERMISSOES.indexOf(c) === -1) return;
+    if(customizadas[c]) set[c] = true; else delete set[c];
+  });
+  return Object.keys(set);
+}
+
+function podeFazer(chave){
+  return state.permissoes.indexOf(chave) > -1;
+}
 
 /* ============ Dados de demonstração ============ */
 var demoIntegrantes = [
@@ -433,6 +506,7 @@ async function handleLogin(ev){
     try{
       var data = await apiFetch('/auth/login', {method:'POST', body:JSON.stringify({login:login, senha:senha})});
       state.token = data.access_token; state.cargo = data.cargo; state.nome = data.nome;
+      state.permissoes = data.permissoes || permissoesEfetivas(data.cargo, {});
       state.screen='app'; state.view='dashboard';
       render();
     }catch(e){
@@ -443,6 +517,7 @@ async function handleLogin(ev){
 
   if(login==='presidente' && senha==='imaculados123'){
     state.token='demo-token'; state.cargo='Presidente'; state.nome='Marcos "Falcão" Andrade';
+    state.permissoes = permissoesEfetivas('Presidente', {});
     state.screen='app'; state.view='dashboard';
     render();
   } else {
@@ -465,14 +540,19 @@ function setApiBase(){
 
 /* ============ Navegação ============ */
 var menuItens = [
-  {id:'dashboard', label:'Dashboard'},
-  {id:'membros', label:'Integrantes'},
-  {id:'mensalidades', label:'Mensalidades'},
-  {id:'eventos', label:'Eventos'},
-  {id:'comunicados', label:'Comunicados'},
-  {id:'documentos', label:'Documentos'},
-  {id:'solicitacoes', label:'Solicitações'}
+  {id:'dashboard', label:'Dashboard', perm:'ver_dashboard'},
+  {id:'membros', label:'Integrantes', perm:'ver_integrantes'},
+  {id:'mensalidades', label:'Mensalidades', perm:'ver_financeiro'},
+  {id:'eventos', label:'Eventos', perm:'ver_eventos'},
+  {id:'comunicados', label:'Comunicados', perm:'ver_comunicados'},
+  {id:'documentos', label:'Documentos', perm:'ver_documentos'},
+  {id:'solicitacoes', label:'Solicitações', perm:'ver_solicitacoes'},
+  {id:'acessos', label:'Acessos', perm:'gerenciar_acessos'}
 ];
+
+function menuVisivel(){
+  return menuItens.filter(function(item){ return podeFazer(item.perm); });
+}
 
 function irPara(view){ state.view = view; render(); }
 function irParaPublico(){ state.screen='publico'; render(); }
@@ -507,7 +587,11 @@ function render(){
   document.getElementById('topo-cargo').textContent = state.cargo || '';
 
   var nav = document.getElementById('nav-menu');
-  nav.innerHTML = menuItens.map(function(item){
+  var visiveis = menuVisivel();
+  if(visiveis.length && !visiveis.some(function(i){return i.id===state.view;})){
+    state.view = visiveis[0].id; // evita tela em branco se perderam acesso à view atual
+  }
+  nav.innerHTML = visiveis.map(function(item){
     return '<button class="nav-item '+(state.view===item.id?'ativo':'')+'" onclick="irPara(\''+item.id+'\')">'+item.label+
       (item.id==='solicitacoes' ? contadorSolicitacoesPendentesBadge() : '') +
     '</button>';
@@ -524,6 +608,7 @@ function render(){
   else if(state.view==='comunicados') renderComunicados(body);
   else if(state.view==='documentos') renderDocumentos(body);
   else if(state.view==='solicitacoes') renderSolicitacoes(body);
+  else if(state.view==='acessos') renderAcessos(body);
 }
 
 function contadorSolicitacoesPendentesBadge(){
@@ -600,10 +685,10 @@ function renderMembros(body){
     '<div class="painel-sub">Cadastro de membros da irmandade</div>' +
     '<div class="toolbar">' +
       '<input type="text" id="busca-membros" placeholder="Buscar por nome ou apelido..." oninput="filtrarMembros(this.value)">' +
-      '<button class="btn-primario" onclick="abrirModalNovoIntegrante()">+ Novo integrante</button>' +
+      (podeFazer('editar_integrantes') ? '<button class="btn-primario" onclick="abrirModalNovoIntegrante()">+ Novo integrante</button>' : '') +
     '</div>' +
     '<div class="table-wrap"><table>' +
-      '<thead><tr><th>Nome</th><th>Cargo</th><th>Status</th><th>Moto</th><th>Placa</th><th>Contato</th></tr></thead>' +
+      '<thead><tr><th>Nome</th><th>Cargo</th><th>Status</th><th>Moto</th><th>Placa</th><th>Contato</th><th></th></tr></thead>' +
       '<tbody id="tbody-membros"></tbody>' +
     '</table></div>';
   filtrarMembros(state.membrosFiltro);
@@ -618,19 +703,85 @@ function filtrarMembros(v){
   var tbody = document.getElementById('tbody-membros');
   if(!tbody) return;
   if(lista.length===0){
-    tbody.innerHTML = '<tr><td colspan="6" class="vazio">Nenhum integrante encontrado.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" class="vazio">Nenhum integrante encontrado.</td></tr>';
     return;
   }
   tbody.innerHTML = lista.map(function(i){
     return '<tr>' +
-      '<td>'+i.nome+' <span class="mono" style="color:var(--muted)">"'+i.apelido+'"</span></td>' +
+      '<td>'+i.nome+' <span class="mono" style="color:var(--muted)">"'+(i.apelido||'')+'"</span></td>' +
       '<td>'+i.cargo+'</td>' +
       '<td><span class="status-pill '+(i.status==='Ativo'?'status-ativo':'status-inativo')+'">'+i.status+'</span></td>' +
-      '<td>'+i.moto_modelo+'</td>' +
-      '<td class="mono">'+i.moto_placa+'</td>' +
-      '<td>'+i.telefone+'</td>' +
+      '<td>'+(i.moto_modelo||'—')+'</td>' +
+      '<td class="mono">'+(i.moto_placa||'—')+'</td>' +
+      '<td>'+(i.telefone||'—')+'</td>' +
+      '<td>'+(podeFazer('editar_integrantes') ? '<button class="acao-link" onclick="abrirModalEditarIntegrante('+i.id+')">Editar</button>' : '')+'</td>' +
     '</tr>';
   }).join('');
+}
+
+function abrirModalEditarIntegrante(id){
+  var i = demoIntegrantes.find(function(x){return x.id===id;});
+  if(!i) return;
+  var opcoesCargo = CARGOS.map(function(c){
+    return '<option'+(i.cargo===c?' selected':'')+'>'+c+'</option>';
+  }).join('');
+
+  document.getElementById('modal-root').innerHTML =
+    '<div class="modal-overlay" onclick="if(event.target===this) fecharModal()">' +
+      '<div class="modal">' +
+        '<h3>Editar integrante</h3>' +
+        '<div class="grid-2">' +
+          '<div class="campo"><label>Nome</label><input type="text" id="ed-nome" value="'+(i.nome||'')+'"></div>' +
+          '<div class="campo"><label>Apelido</label><input type="text" id="ed-apelido" value="'+(i.apelido||'')+'"></div>' +
+        '</div>' +
+        '<div class="grid-2">' +
+          '<div class="campo"><label>Cargo</label><select id="ed-cargo">'+opcoesCargo+'</select></div>' +
+          '<div class="campo"><label>Status</label><select id="ed-status">' +
+            '<option'+(i.status==='Ativo'?' selected':'')+'>Ativo</option>' +
+            '<option'+(i.status==='Inativo'?' selected':'')+'>Inativo</option>' +
+          '</select></div>' +
+        '</div>' +
+        '<div class="grid-2">' +
+          '<div class="campo"><label>Moto (modelo)</label><input type="text" id="ed-moto" value="'+(i.moto_modelo||'')+'"></div>' +
+          '<div class="campo"><label>Placa</label><input type="text" id="ed-placa" value="'+(i.moto_placa||'')+'"></div>' +
+        '</div>' +
+        '<div class="grid-2">' +
+          '<div class="campo"><label>Telefone</label><input type="text" id="ed-telefone" value="'+(i.telefone||'')+'"></div>' +
+          '<div class="campo"><label>E-mail</label><input type="text" id="ed-email" value="'+(i.email||'')+'"></div>' +
+        '</div>' +
+        '<div style="font-size:11.5px;color:var(--muted);border-top:1px solid var(--border);padding-top:12px;margin-top:6px;line-height:1.6;">' +
+          'O cargo define o nível de acesso padrão. Para liberar ou bloquear itens específicos desta pessoa, use a aba <b style="color:var(--gold);">Acessos</b>.' +
+        '</div>' +
+        '<div class="modal-acoes">' +
+          '<button class="btn-secundario" onclick="fecharModal()">Cancelar</button>' +
+          '<button class="btn-entrar" style="width:auto;padding:9px 20px;" onclick="salvarEdicaoIntegrante('+id+')">Salvar</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+}
+
+async function salvarEdicaoIntegrante(id){
+  var dados = {
+    nome: document.getElementById('ed-nome').value.trim(),
+    apelido: document.getElementById('ed-apelido').value.trim(),
+    cargo: document.getElementById('ed-cargo').value,
+    status: document.getElementById('ed-status').value,
+    moto_modelo: document.getElementById('ed-moto').value.trim(),
+    moto_placa: document.getElementById('ed-placa').value.trim(),
+    telefone: document.getElementById('ed-telefone').value.trim(),
+    email: document.getElementById('ed-email').value.trim()
+  };
+  if(!dados.nome){ alert('O nome não pode ficar vazio.'); return; }
+
+  if(state.apiBase){
+    try{ await apiFetch('/integrantes/'+id, {method:'PUT', body:JSON.stringify(dados)}); }
+    catch(e){ alert('Erro ao salvar na API: '+e.message); return; }
+  } else {
+    var i = demoIntegrantes.find(function(x){return x.id===id;});
+    if(i) Object.keys(dados).forEach(function(k){ i[k] = dados[k]; });
+  }
+  fecharModal();
+  renderMembros(document.getElementById('view-body'));
 }
 
 function abrirModalNovoIntegrante(){
@@ -1262,6 +1413,197 @@ async function recusarSolicitacao(id){
   if(pill){ pill.textContent='Recusada'; pill.className='status-pill status-inativo'; }
   var acoes = document.getElementById('acoes-'+id);
   if(acoes){ acoes.innerHTML=''; }
+}
+
+/* ============ Acessos e permissões ============ */
+var demoUsuarios = [
+  {id:1, login:'marcosandrade', cargo:'Presidente', ativo:true, integrante_id:1, integrante_nome:'Marcos Andrade', permissoes_customizadas:{}},
+  {id:2, login:'rafaelsouza', cargo:'Vice-Presidente', ativo:true, integrante_id:2, integrante_nome:'Rafael Souza', permissoes_customizadas:{}},
+  {id:3, login:'julianamartins', cargo:'Tesoureiro', ativo:true, integrante_id:3, integrante_nome:'Juliana Martins', permissoes_customizadas:{'ver_solicitacoes':true}},
+  {id:4, login:'eduardolima', cargo:'Disciplina', ativo:true, integrante_id:4, integrante_nome:'Eduardo Lima', permissoes_customizadas:{}},
+  {id:5, login:'brunocosta', cargo:'Integrante', ativo:true, integrante_id:5, integrante_nome:'Bruno Costa', permissoes_customizadas:{}},
+  {id:6, login:'diegorocha', cargo:'Integrante', ativo:false, integrante_id:7, integrante_nome:'Diego Rocha', permissoes_customizadas:{}}
+];
+
+var usuarioExpandido = null;
+var rascunhoPermissoes = {};   // ajustes ainda não salvos, por usuário
+var usuariosAtuais = [];       // lista exibida (vinda da API ou da demonstração)
+
+function acharUsuario(id){
+  return usuariosAtuais.find(function(x){return x.id===id;}) ||
+         demoUsuarios.find(function(x){return x.id===id;});
+}
+
+async function renderAcessos(body){
+  body.innerHTML =
+    '<div class="painel-titulo">Acessos e permissões</div>' +
+    '<div class="painel-sub">Defina o cargo de cada pessoa e ajuste individualmente o que ela pode ver e fazer</div>' +
+    '<div id="lista-acessos"></div>';
+
+  var lista = demoUsuarios;
+  if(state.apiBase){
+    try{ lista = await apiFetch('/usuarios'); }catch(e){ /* mantém mock em caso de falha */ }
+  }
+  usuariosAtuais = lista;
+
+  document.getElementById('lista-acessos').innerHTML = lista.map(function(u){
+    var custom = u.permissoes_customizadas || {};
+    var qtdeAjustes = Object.keys(custom).length;
+    var efetivas = u.permissoes_efetivas || permissoesEfetivas(u.cargo, custom);
+    var opcoes = CARGOS.map(function(c){ return '<option'+(u.cargo===c?' selected':'')+'>'+c+'</option>'; }).join('');
+
+    return '<div class="acesso-card">' +
+      '<div class="acesso-topo">' +
+        '<div>' +
+          '<div class="acesso-nome">'+(u.integrante_nome||u.login)+'</div>' +
+          '<div class="acesso-meta">login: <span class="mono">'+u.login+'</span> · '+efetivas.length+' permissões' +
+            (qtdeAjustes ? ' · <span style="color:var(--gold);">'+qtdeAjustes+' ajuste(s) individual(is)</span>' : '') +
+          '</div>' +
+        '</div>' +
+        '<div class="acesso-acoes">' +
+          '<span class="status-pill '+(u.ativo?'status-ativo':'status-inativo')+'">'+(u.ativo?'Ativo':'Bloqueado')+'</span>' +
+          '<select onchange="alterarCargoUsuario('+u.id+', this.value)">'+opcoes+'</select>' +
+          '<button class="acao-link" onclick="alternarExpandir('+u.id+')">'+(usuarioExpandido===u.id?'Fechar':'Permissões')+'</button>' +
+        '</div>' +
+      '</div>' +
+      (usuarioExpandido===u.id ? blocoPermissoes(u) : '') +
+    '</div>';
+  }).join('');
+}
+
+function blocoPermissoes(u){
+  var custom = rascunhoPermissoes[u.id] || Object.assign({}, u.permissoes_customizadas || {});
+  rascunhoPermissoes[u.id] = custom;
+  var padrao = PADROES_POR_CARGO[u.cargo] || BASICO;
+  var efetivas = permissoesEfetivas(u.cargo, custom);
+
+  var grupos = {};
+  CATALOGO_PERMISSOES.forEach(function(p){
+    if(!grupos[p.grupo]) grupos[p.grupo] = [];
+    grupos[p.grupo].push(p);
+  });
+
+  var html = '<div class="perm-grupo">';
+  Object.keys(grupos).forEach(function(nomeGrupo){
+    html += '<div class="perm-grupo-titulo">'+nomeGrupo+'</div>';
+    grupos[nomeGrupo].forEach(function(p){
+      var ligado = efetivas.indexOf(p.chave) > -1;
+      var noPadrao = padrao.indexOf(p.chave) > -1;
+      var ehCustom = custom.hasOwnProperty(p.chave);
+      var origem = ehCustom
+        ? (custom[p.chave] ? 'Liberado manualmente' : 'Bloqueado manualmente')
+        : (noPadrao ? 'Padrão do cargo '+u.cargo : 'Não incluído no cargo '+u.cargo);
+      html +=
+        '<div class="perm-linha">' +
+          '<div>' +
+            '<div class="perm-label">'+p.label+'</div>' +
+            '<div class="perm-origem'+(ehCustom?' custom':'')+'">'+origem+'</div>' +
+          '</div>' +
+          '<label class="chave-switch">' +
+            '<input type="checkbox" '+(ligado?'checked':'')+' onchange="alternarPermissao('+u.id+',\''+p.chave+'\', this.checked)">' +
+            '<span class="chave-trilho"></span>' +
+          '</label>' +
+        '</div>';
+    });
+  });
+  html += '</div>' +
+    '<div class="perm-rodape">' +
+      '<button class="btn-secundario" onclick="restaurarPadraoCargo('+u.id+')">Voltar ao padrão do cargo</button>' +
+      '<button class="btn-secundario" onclick="resetarSenhaUsuario('+u.id+')">Resetar senha</button>' +
+      '<button class="btn-secundario" onclick="alternarAtivoUsuario('+u.id+')">'+(u.ativo?'Bloquear acesso':'Reativar acesso')+'</button>' +
+      '<button class="btn-entrar" style="width:auto;padding:9px 20px;" onclick="salvarPermissoes('+u.id+')">Salvar permissões</button>' +
+    '</div>' +
+    '<div id="msg-acesso-'+u.id+'"></div>';
+  return html;
+}
+
+function alternarExpandir(id){
+  usuarioExpandido = (usuarioExpandido===id) ? null : id;
+  renderAcessos(document.getElementById('view-body'));
+}
+
+function alternarPermissao(usuarioId, chave, ligado){
+  var u = acharUsuario(usuarioId) || {cargo:'Integrante'};
+  var padrao = PADROES_POR_CARGO[u.cargo] || BASICO;
+  var noPadrao = padrao.indexOf(chave) > -1;
+  var custom = rascunhoPermissoes[usuarioId] || {};
+
+  // Se a escolha coincide com o padrão do cargo, não precisa guardar ajuste
+  if(ligado === noPadrao) delete custom[chave];
+  else custom[chave] = ligado;
+
+  rascunhoPermissoes[usuarioId] = custom;
+  renderAcessos(document.getElementById('view-body'));
+}
+
+function restaurarPadraoCargo(usuarioId){
+  rascunhoPermissoes[usuarioId] = {};
+  renderAcessos(document.getElementById('view-body'));
+}
+
+async function salvarPermissoes(usuarioId){
+  var custom = rascunhoPermissoes[usuarioId] || {};
+  if(state.apiBase){
+    try{
+      await apiFetch('/usuarios/'+usuarioId+'/permissoes', {method:'PUT', body:JSON.stringify({permissoes:custom})});
+    }catch(e){ alert('Erro ao salvar permissões: '+e.message); return; }
+  } else {
+    var u = demoUsuarios.find(function(x){return x.id===usuarioId;});
+    if(u) u.permissoes_customizadas = Object.assign({}, custom);
+  }
+  var msg = document.getElementById('msg-acesso-'+usuarioId);
+  if(msg) msg.innerHTML = '<div class="credenciais-box">✅ Permissões salvas.</div>';
+  setTimeout(function(){ renderAcessos(document.getElementById('view-body')); }, 1200);
+}
+
+async function alterarCargoUsuario(usuarioId, novoCargo){
+  if(state.apiBase){
+    try{ await apiFetch('/usuarios/'+usuarioId, {method:'PATCH', body:JSON.stringify({cargo:novoCargo})}); }
+    catch(e){ alert('Erro ao alterar cargo: '+e.message); renderAcessos(document.getElementById('view-body')); return; }
+  } else {
+    var u = demoUsuarios.find(function(x){return x.id===usuarioId;});
+    if(u){
+      u.cargo = novoCargo;
+      var i = demoIntegrantes.find(function(x){return x.id===u.integrante_id;});
+      if(i) i.cargo = novoCargo;  // mantém a lista de integrantes em sincronia
+    }
+  }
+  delete rascunhoPermissoes[usuarioId];
+  renderAcessos(document.getElementById('view-body'));
+}
+
+async function alternarAtivoUsuario(usuarioId){
+  var u = acharUsuario(usuarioId);
+  var novoAtivo = u ? !u.ativo : true;
+  if(!novoAtivo && !confirm('Bloquear o acesso desta pessoa ao portal?')) return;
+
+  if(state.apiBase){
+    try{ await apiFetch('/usuarios/'+usuarioId, {method:'PATCH', body:JSON.stringify({ativo:novoAtivo})}); }
+    catch(e){ alert('Erro ao alterar acesso: '+e.message); return; }
+  } else if(u){
+    u.ativo = novoAtivo;
+  }
+  renderAcessos(document.getElementById('view-body'));
+}
+
+async function resetarSenhaUsuario(usuarioId){
+  if(!confirm('Gerar uma nova senha temporária para esta pessoa?')) return;
+  var login, senha;
+  if(state.apiBase){
+    try{
+      var r = await apiFetch('/usuarios/'+usuarioId+'/resetar-senha', {method:'POST'});
+      login = r.login; senha = r.senha_temporaria;
+    }catch(e){ alert('Erro ao resetar senha: '+e.message); return; }
+  } else {
+    var uSenha = acharUsuario(usuarioId);
+    login = uSenha ? uSenha.login : '';
+    senha = Math.random().toString(36).slice(-8);
+  }
+  var msg = document.getElementById('msg-acesso-'+usuarioId);
+  if(msg){
+    msg.innerHTML = '<div class="credenciais-box">🔑 Nova senha gerada — repasse para a pessoa:' +
+      '<div><b>Login:</b> '+login+'</div><div><b>Senha temporária:</b> '+senha+'</div></div>';
+  }
 }
 
 /* ============ Início ============ */

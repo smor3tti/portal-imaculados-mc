@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 
 import auth
 import models
+import permissoes
 import schemas
 from database import get_db, init_db
 
@@ -63,14 +64,19 @@ def login(dados: schemas.LoginRequest, db: Session = Depends(get_db)):
 
     token = auth.criar_access_token({"sub": str(usuario.id)})
     nome = usuario.integrante.nome if usuario.integrante else usuario.login
-    return schemas.Token(access_token=token, cargo=usuario.cargo, nome=nome)
+    return schemas.Token(
+        access_token=token,
+        cargo=usuario.cargo,
+        nome=nome,
+        permissoes=sorted(auth.permissoes_do_usuario(usuario)),
+    )
 
 
 # ---------- Dashboard ----------
 @app.get("/dashboard", response_model=schemas.DashboardResumo)
 def resumo_dashboard(
     db: Session = Depends(get_db),
-    usuario: models.Usuario = Depends(auth.obter_usuario_atual),
+    usuario: models.Usuario = Depends(auth.exigir_permissao("ver_dashboard")),
 ):
     total_integrantes = (
         db.query(models.Integrante)
@@ -139,7 +145,7 @@ def resumo_dashboard(
 @app.get("/integrantes", response_model=list[schemas.IntegranteOut])
 def listar_integrantes(
     db: Session = Depends(get_db),
-    usuario: models.Usuario = Depends(auth.obter_usuario_atual),
+    usuario: models.Usuario = Depends(auth.exigir_permissao("ver_integrantes")),
 ):
     return db.query(models.Integrante).order_by(models.Integrante.nome).all()
 
@@ -148,7 +154,7 @@ def listar_integrantes(
 def criar_integrante(
     dados: schemas.IntegranteCreate,
     db: Session = Depends(get_db),
-    usuario: models.Usuario = Depends(auth.exigir_cargo("Presidente", "Vice-Presidente", "Diretor")),
+    usuario: models.Usuario = Depends(auth.exigir_permissao("editar_integrantes")),
 ):
     novo = models.Integrante(**dados.model_dump())
     db.add(novo)
@@ -162,7 +168,7 @@ def atualizar_integrante(
     integrante_id: int,
     dados: schemas.IntegranteUpdate,
     db: Session = Depends(get_db),
-    usuario: models.Usuario = Depends(auth.exigir_cargo("Presidente", "Vice-Presidente", "Diretor")),
+    usuario: models.Usuario = Depends(auth.exigir_permissao("editar_integrantes")),
 ):
     integrante = db.query(models.Integrante).filter(models.Integrante.id == integrante_id).first()
     if not integrante:
@@ -170,6 +176,12 @@ def atualizar_integrante(
 
     for campo, valor in dados.model_dump(exclude_unset=True).items():
         setattr(integrante, campo, valor)
+
+    # O cargo controla as permissões: espelha no usuário para não dessincronizar
+    if dados.cargo is not None and integrante.usuario:
+        if dados.cargo not in permissoes.CARGOS:
+            raise HTTPException(status_code=400, detail="Cargo inválido")
+        integrante.usuario.cargo = dados.cargo
 
     db.commit()
     db.refresh(integrante)
@@ -180,7 +192,7 @@ def atualizar_integrante(
 def excluir_integrante(
     integrante_id: int,
     db: Session = Depends(get_db),
-    usuario: models.Usuario = Depends(auth.exigir_cargo("Presidente", "Tesoureiro")),
+    usuario: models.Usuario = Depends(auth.exigir_permissao("excluir_integrantes")),
 ):
     integrante = db.query(models.Integrante).filter(models.Integrante.id == integrante_id).first()
     if not integrante:
@@ -198,7 +210,7 @@ def listar_mensalidades(
     referencia: str | None = None,
     apenas_pendentes: bool = False,
     db: Session = Depends(get_db),
-    usuario: models.Usuario = Depends(auth.obter_usuario_atual),
+    usuario: models.Usuario = Depends(auth.exigir_permissao("ver_financeiro")),
 ):
     consulta = db.query(models.Mensalidade)
     if integrante_id is not None:
@@ -222,7 +234,7 @@ def listar_mensalidades(
 def criar_mensalidade(
     dados: schemas.MensalidadeCreate,
     db: Session = Depends(get_db),
-    usuario: models.Usuario = Depends(auth.exigir_cargo("Presidente", "Tesoureiro")),
+    usuario: models.Usuario = Depends(auth.exigir_permissao("editar_financeiro")),
 ):
     integrante = db.query(models.Integrante).filter(
         models.Integrante.id == dados.integrante_id
@@ -245,7 +257,7 @@ def registrar_pagamento(
     mensalidade_id: int,
     dados: schemas.MensalidadePagamento,
     db: Session = Depends(get_db),
-    usuario: models.Usuario = Depends(auth.exigir_cargo("Presidente", "Tesoureiro")),
+    usuario: models.Usuario = Depends(auth.exigir_permissao("editar_financeiro")),
 ):
     mensalidade = db.query(models.Mensalidade).filter(
         models.Mensalidade.id == mensalidade_id
@@ -285,7 +297,7 @@ def _evento_para_out(evento: models.Evento) -> schemas.EventoOut:
 def listar_eventos(
     apenas_futuros: bool = False,
     db: Session = Depends(get_db),
-    usuario: models.Usuario = Depends(auth.obter_usuario_atual),
+    usuario: models.Usuario = Depends(auth.exigir_permissao("ver_eventos")),
 ):
     consulta = db.query(models.Evento)
     if apenas_futuros:
@@ -298,7 +310,7 @@ def listar_eventos(
 def criar_evento(
     dados: schemas.EventoCreate,
     db: Session = Depends(get_db),
-    usuario: models.Usuario = Depends(auth.exigir_cargo("Presidente", "Vice-Presidente", "Diretor")),
+    usuario: models.Usuario = Depends(auth.exigir_permissao("editar_eventos")),
 ):
     novo = models.Evento(**dados.model_dump(), criador_id=usuario.integrante_id)
     db.add(novo)
@@ -312,7 +324,7 @@ def atualizar_evento(
     evento_id: int,
     dados: schemas.EventoUpdate,
     db: Session = Depends(get_db),
-    usuario: models.Usuario = Depends(auth.exigir_cargo("Presidente", "Vice-Presidente", "Diretor")),
+    usuario: models.Usuario = Depends(auth.exigir_permissao("editar_eventos")),
 ):
     evento = db.query(models.Evento).filter(models.Evento.id == evento_id).first()
     if not evento:
@@ -330,7 +342,7 @@ def atualizar_evento(
 def excluir_evento(
     evento_id: int,
     db: Session = Depends(get_db),
-    usuario: models.Usuario = Depends(auth.exigir_cargo("Presidente", "Vice-Presidente", "Diretor")),
+    usuario: models.Usuario = Depends(auth.exigir_permissao("editar_eventos")),
 ):
     evento = db.query(models.Evento).filter(models.Evento.id == evento_id).first()
     if not evento:
@@ -346,7 +358,7 @@ def excluir_evento(
 def listar_presencas(
     evento_id: int,
     db: Session = Depends(get_db),
-    usuario: models.Usuario = Depends(auth.obter_usuario_atual),
+    usuario: models.Usuario = Depends(auth.exigir_permissao("ver_eventos")),
 ):
     evento = db.query(models.Evento).filter(models.Evento.id == evento_id).first()
     if not evento:
@@ -365,7 +377,7 @@ def confirmar_presenca(
     evento_id: int,
     dados: schemas.PresencaAtualizar,
     db: Session = Depends(get_db),
-    usuario: models.Usuario = Depends(auth.obter_usuario_atual),
+    usuario: models.Usuario = Depends(auth.exigir_permissao("ver_eventos")),
 ):
     """Confirma/atualiza a presença do próprio usuário autenticado em um evento."""
     evento = db.query(models.Evento).filter(models.Evento.id == evento_id).first()
@@ -410,7 +422,7 @@ def _comunicado_para_out(c: models.Comunicado) -> schemas.ComunicadoOut:
 @app.get("/comunicados", response_model=list[schemas.ComunicadoOut])
 def listar_comunicados(
     db: Session = Depends(get_db),
-    usuario: models.Usuario = Depends(auth.obter_usuario_atual),
+    usuario: models.Usuario = Depends(auth.exigir_permissao("ver_comunicados")),
 ):
     comunicados = (
         db.query(models.Comunicado)
@@ -425,7 +437,7 @@ def criar_comunicado(
     dados: schemas.ComunicadoCreate,
     db: Session = Depends(get_db),
     usuario: models.Usuario = Depends(
-        auth.exigir_cargo("Presidente", "Vice-Presidente", "Diretor", "Disciplina")
+        auth.exigir_permissao("editar_comunicados")
     ),
 ):
     novo = models.Comunicado(**dados.model_dump(), autor_id=usuario.integrante_id)
@@ -441,7 +453,7 @@ def atualizar_comunicado(
     dados: schemas.ComunicadoUpdate,
     db: Session = Depends(get_db),
     usuario: models.Usuario = Depends(
-        auth.exigir_cargo("Presidente", "Vice-Presidente", "Diretor", "Disciplina")
+        auth.exigir_permissao("editar_comunicados")
     ),
 ):
     comunicado = db.query(models.Comunicado).filter(models.Comunicado.id == comunicado_id).first()
@@ -461,7 +473,7 @@ def excluir_comunicado(
     comunicado_id: int,
     db: Session = Depends(get_db),
     usuario: models.Usuario = Depends(
-        auth.exigir_cargo("Presidente", "Vice-Presidente", "Diretor", "Disciplina")
+        auth.exigir_permissao("editar_comunicados")
     ),
 ):
     comunicado = db.query(models.Comunicado).filter(models.Comunicado.id == comunicado_id).first()
@@ -487,7 +499,7 @@ def _documento_para_out(doc: models.Documento) -> schemas.DocumentoOut:
 def listar_documentos(
     categoria: str | None = None,
     db: Session = Depends(get_db),
-    usuario: models.Usuario = Depends(auth.obter_usuario_atual),
+    usuario: models.Usuario = Depends(auth.exigir_permissao("ver_documentos")),
 ):
     consulta = db.query(models.Documento)
     if categoria:
@@ -503,7 +515,7 @@ async def enviar_documento(
     arquivo: UploadFile = File(...),
     db: Session = Depends(get_db),
     usuario: models.Usuario = Depends(
-        auth.exigir_cargo("Presidente", "Vice-Presidente", "Diretor", "Tesoureiro")
+        auth.exigir_permissao("editar_documentos")
     ),
 ):
     extensao = Path(arquivo.filename).suffix.lower()
@@ -541,7 +553,7 @@ async def enviar_documento(
 def baixar_documento(
     documento_id: int,
     db: Session = Depends(get_db),
-    usuario: models.Usuario = Depends(auth.obter_usuario_atual),
+    usuario: models.Usuario = Depends(auth.exigir_permissao("ver_documentos")),
 ):
     documento = db.query(models.Documento).filter(models.Documento.id == documento_id).first()
     if not documento:
@@ -559,7 +571,7 @@ def excluir_documento(
     documento_id: int,
     db: Session = Depends(get_db),
     usuario: models.Usuario = Depends(
-        auth.exigir_cargo("Presidente", "Vice-Presidente", "Diretor", "Tesoureiro")
+        auth.exigir_permissao("editar_documentos")
     ),
 ):
     documento = db.query(models.Documento).filter(models.Documento.id == documento_id).first()
@@ -604,7 +616,7 @@ def enviar_solicitacao(dados: schemas.SolicitacaoCreate, db: Session = Depends(g
 def listar_solicitacoes(
     status_filtro: str | None = None,
     db: Session = Depends(get_db),
-    usuario: models.Usuario = Depends(auth.exigir_cargo("Presidente", "Vice-Presidente", "Diretor")),
+    usuario: models.Usuario = Depends(auth.exigir_permissao("ver_solicitacoes")),
 ):
     consulta = db.query(models.SolicitacaoCadastro)
     if status_filtro:
@@ -616,7 +628,7 @@ def listar_solicitacoes(
 def aprovar_solicitacao(
     solicitacao_id: int,
     db: Session = Depends(get_db),
-    usuario: models.Usuario = Depends(auth.exigir_cargo("Presidente", "Vice-Presidente", "Diretor")),
+    usuario: models.Usuario = Depends(auth.exigir_permissao("analisar_solicitacoes")),
 ):
     solicitacao = db.query(models.SolicitacaoCadastro).filter(
         models.SolicitacaoCadastro.id == solicitacao_id
@@ -667,7 +679,7 @@ def aprovar_solicitacao(
 def recusar_solicitacao(
     solicitacao_id: int,
     db: Session = Depends(get_db),
-    usuario: models.Usuario = Depends(auth.exigir_cargo("Presidente", "Vice-Presidente", "Diretor")),
+    usuario: models.Usuario = Depends(auth.exigir_permissao("analisar_solicitacoes")),
 ):
     solicitacao = db.query(models.SolicitacaoCadastro).filter(
         models.SolicitacaoCadastro.id == solicitacao_id
@@ -683,3 +695,178 @@ def recusar_solicitacao(
     db.commit()
     db.refresh(solicitacao)
     return solicitacao
+
+
+# ---------- Meu perfil ----------
+@app.get("/auth/me", response_model=schemas.MeuPerfil)
+def meu_perfil(usuario: models.Usuario = Depends(auth.obter_usuario_atual)):
+    return schemas.MeuPerfil(
+        id=usuario.id,
+        login=usuario.login,
+        nome=usuario.integrante.nome if usuario.integrante else usuario.login,
+        cargo=usuario.cargo,
+        permissoes=sorted(auth.permissoes_do_usuario(usuario)),
+    )
+
+
+# ---------- Usuários, acessos e permissões ----------
+def _usuario_para_out(u: models.Usuario) -> schemas.UsuarioOut:
+    # Montado campo a campo: no banco 'permissoes_customizadas' é texto JSON,
+    # enquanto no schema é dicionário — a conversão automática não serve aqui.
+    return schemas.UsuarioOut(
+        id=u.id,
+        login=u.login,
+        cargo=u.cargo,
+        ativo=bool(u.ativo),
+        integrante_id=u.integrante_id,
+        integrante_nome=u.integrante.nome if u.integrante else None,
+        permissoes_efetivas=sorted(auth.permissoes_do_usuario(u)),
+        permissoes_customizadas=permissoes.carregar_customizadas(u.permissoes_customizadas),
+    )
+
+
+def _restariam_administradores(db: Session, usuario_alvo: models.Usuario) -> bool:
+    """Confere se, além do usuário alvo, sobra alguém ativo com 'gerenciar_acessos'.
+
+    Impede que o clube fique sem ninguém capaz de administrar o sistema.
+    """
+    outros = db.query(models.Usuario).filter(
+        models.Usuario.id != usuario_alvo.id,
+        models.Usuario.ativo.is_(True),
+    ).all()
+    return any("gerenciar_acessos" in auth.permissoes_do_usuario(u) for u in outros)
+
+
+@app.get("/permissoes/catalogo", response_model=schemas.CatalogoPermissoes)
+def catalogo_permissoes(
+    usuario: models.Usuario = Depends(auth.exigir_permissao("gerenciar_acessos")),
+):
+    return schemas.CatalogoPermissoes(
+        permissoes=permissoes.CATALOGO,
+        cargos=permissoes.CARGOS,
+        padroes_por_cargo=permissoes.PADROES_POR_CARGO,
+    )
+
+
+@app.get("/usuarios", response_model=list[schemas.UsuarioOut])
+def listar_usuarios(
+    db: Session = Depends(get_db),
+    usuario: models.Usuario = Depends(auth.exigir_permissao("gerenciar_acessos")),
+):
+    return [_usuario_para_out(u) for u in db.query(models.Usuario).all()]
+
+
+@app.patch("/usuarios/{usuario_id}", response_model=schemas.UsuarioOut)
+def atualizar_usuario(
+    usuario_id: int,
+    dados: schemas.UsuarioAtualizar,
+    db: Session = Depends(get_db),
+    usuario: models.Usuario = Depends(auth.exigir_permissao("gerenciar_acessos")),
+):
+    """Altera cargo e/ou status do acesso. O cargo é espelhado no integrante."""
+    alvo = db.query(models.Usuario).filter(models.Usuario.id == usuario_id).first()
+    if not alvo:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+
+    if dados.cargo is not None:
+        if dados.cargo not in permissoes.CARGOS:
+            raise HTTPException(status_code=400, detail="Cargo inválido")
+        alvo.cargo = dados.cargo
+        if alvo.integrante:
+            alvo.integrante.cargo = dados.cargo  # mantém os dois lados em sincronia
+
+    if dados.ativo is not None:
+        alvo.ativo = dados.ativo
+
+    # trava: não deixar o sistema sem nenhum administrador ativo
+    ainda_administra = alvo.ativo and "gerenciar_acessos" in auth.permissoes_do_usuario(alvo)
+    if not ainda_administra and not _restariam_administradores(db, alvo):
+        db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail="Esta alteração deixaria o sistema sem nenhum administrador ativo",
+        )
+
+    db.commit()
+    db.refresh(alvo)
+    return _usuario_para_out(alvo)
+
+
+@app.put("/usuarios/{usuario_id}/permissoes", response_model=schemas.UsuarioOut)
+def atualizar_permissoes(
+    usuario_id: int,
+    dados: schemas.PermissoesAtualizar,
+    db: Session = Depends(get_db),
+    usuario: models.Usuario = Depends(auth.exigir_permissao("gerenciar_acessos")),
+):
+    """Define os ajustes individuais de permissão (por cima do padrão do cargo)."""
+    alvo = db.query(models.Usuario).filter(models.Usuario.id == usuario_id).first()
+    if not alvo:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+
+    desconhecidas = [c for c in dados.permissoes if c not in permissoes.TODAS]
+    if desconhecidas:
+        raise HTTPException(
+            status_code=400, detail=f"Permissões inválidas: {', '.join(desconhecidas)}"
+        )
+
+    alvo.permissoes_customizadas = permissoes.serializar_customizadas(dados.permissoes)
+
+    ainda_administra = alvo.ativo and "gerenciar_acessos" in auth.permissoes_do_usuario(alvo)
+    if not ainda_administra and not _restariam_administradores(db, alvo):
+        db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail="Esta alteração deixaria o sistema sem nenhum administrador ativo",
+        )
+
+    db.commit()
+    db.refresh(alvo)
+    return _usuario_para_out(alvo)
+
+
+@app.post("/usuarios/{usuario_id}/resetar-senha", response_model=schemas.SenhaResetada)
+def resetar_senha(
+    usuario_id: int,
+    db: Session = Depends(get_db),
+    usuario: models.Usuario = Depends(auth.exigir_permissao("gerenciar_acessos")),
+):
+    alvo = db.query(models.Usuario).filter(models.Usuario.id == usuario_id).first()
+    if not alvo:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+
+    senha_temporaria = secrets.token_urlsafe(6)
+    alvo.senha_hash = auth.gerar_hash_senha(senha_temporaria)
+    db.commit()
+    return schemas.SenhaResetada(login=alvo.login, senha_temporaria=senha_temporaria)
+
+
+@app.post("/integrantes/{integrante_id}/criar-acesso", response_model=schemas.AcessoCriado)
+def criar_acesso(
+    integrante_id: int,
+    db: Session = Depends(get_db),
+    usuario: models.Usuario = Depends(auth.exigir_permissao("gerenciar_acessos")),
+):
+    """Cria login para um integrante que ainda não tem acesso ao portal."""
+    integrante = db.query(models.Integrante).filter(
+        models.Integrante.id == integrante_id
+    ).first()
+    if not integrante:
+        raise HTTPException(status_code=404, detail="Integrante não encontrado")
+    if integrante.usuario:
+        raise HTTPException(status_code=400, detail="Este integrante já possui acesso")
+
+    login_gerado = _gerar_login(integrante.nome, db)
+    senha_temporaria = secrets.token_urlsafe(6)
+    novo = models.Usuario(
+        integrante_id=integrante.id,
+        login=login_gerado,
+        senha_hash=auth.gerar_hash_senha(senha_temporaria),
+        cargo=integrante.cargo or "Integrante",
+    )
+    db.add(novo)
+    db.commit()
+    db.refresh(novo)
+    return schemas.AcessoCriado(
+        usuario_id=novo.id, login=login_gerado, senha_temporaria=senha_temporaria
+    )

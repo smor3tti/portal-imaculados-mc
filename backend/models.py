@@ -22,6 +22,7 @@ class Usuario(Base):
     senha_hash = Column(String(255), nullable=False)
     cargo = Column(String(30), nullable=False, default="Integrante")
     # Cargos oficiais: Presidente, Vice-Presidente, Diretor, Tesoureiro, Disciplina, Integrante, Prospero
+    permissoes_customizadas = Column(Text, nullable=True)  # JSON com ajustes individuais
     ativo = Column(Boolean, default=True)
     criado_em = Column(DateTime, default=datetime.utcnow)
 

@@ -19,6 +19,7 @@ class Token(BaseModel):
     token_type: str = "bearer"
     cargo: str
     nome: str
+    permissoes: list[str] = []
 
 
 # ---------- Integrante ----------
@@ -205,6 +206,62 @@ class SolicitacaoAprovarOut(BaseModel):
     integrante_id: int
     login_gerado: str
     senha_temporaria: str
+
+
+# ---------- Usuários / permissões ----------
+class PermissaoCatalogoItem(BaseModel):
+    chave: str
+    label: str
+    grupo: str
+
+
+class CatalogoPermissoes(BaseModel):
+    permissoes: list[PermissaoCatalogoItem]
+    cargos: list[str]
+    padroes_por_cargo: dict[str, list[str]]
+
+
+class UsuarioOut(BaseModel):
+    id: int
+    login: str
+    cargo: str
+    ativo: bool
+    integrante_id: Optional[int] = None
+    integrante_nome: Optional[str] = None
+    permissoes_efetivas: list[str] = []
+    permissoes_customizadas: dict[str, bool] = {}
+
+
+class UsuarioAtualizar(BaseModel):
+    cargo: Optional[str] = None
+    ativo: Optional[bool] = None
+
+
+class PermissoesAtualizar(BaseModel):
+    """Ajustes individuais: chave -> liberado (true) / bloqueado (false).
+
+    Enviar um dicionário vazio faz o usuário voltar ao padrão do cargo.
+    """
+    permissoes: dict[str, bool] = {}
+
+
+class SenhaResetada(BaseModel):
+    login: str
+    senha_temporaria: str
+
+
+class AcessoCriado(BaseModel):
+    usuario_id: int
+    login: str
+    senha_temporaria: str
+
+
+class MeuPerfil(BaseModel):
+    id: int
+    login: str
+    nome: str
+    cargo: str
+    permissoes: list[str]
 
 
 # ---------- Dashboard ----------

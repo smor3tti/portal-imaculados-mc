@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 import models
+import permissoes
 
 load_dotenv()
 
@@ -76,6 +77,29 @@ def exigir_cargo(*cargos_permitidos: str):
     """Dependency factory: restringe uma rota a determinados cargos."""
     def verificador(usuario: models.Usuario = Depends(obter_usuario_atual)):
         if usuario.cargo not in cargos_permitidos:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Você não tem permissão para acessar este recurso",
+            )
+        return usuario
+    return verificador
+
+
+def permissoes_do_usuario(usuario: models.Usuario) -> set:
+    """Permissões finais do usuário (padrão do cargo + ajustes individuais)."""
+    return permissoes.efetivas(usuario.cargo, usuario.permissoes_customizadas)
+
+
+def exigir_permissao(*chaves_necessarias: str):
+    """Dependency factory: exige uma ou mais permissões específicas.
+
+    Preferir esta função a exigir_cargo, pois respeita os ajustes individuais
+    feitos pela diretoria em cada usuário.
+    """
+    def verificador(usuario: models.Usuario = Depends(obter_usuario_atual)):
+        se_tem = permissoes_do_usuario(usuario)
+        faltando = [c for c in chaves_necessarias if c not in se_tem]
+        if faltando:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Você não tem permissão para acessar este recurso",
