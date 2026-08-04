@@ -19,6 +19,7 @@
   --muted-2:#6f6f6f;
   --danger:#e2574c;
   --vermelho:#8B1E1E;
+  --amarelo:#F0C420;
   --success:#4f9d6c;
 }
 *{box-sizing:border-box;margin:0;padding:0;}
@@ -40,6 +41,46 @@ body{background:var(--bg);color:var(--cream);font-family:-apple-system,BlinkMacS
 #public-screen,#cadastro-screen,#login-screen,#app-screen{position:relative;z-index:1;}
 @media (prefers-reduced-motion: reduce){
   #video-fundo{display:none;}
+}
+
+/* ---------- Sigla R.I.L.H. lateral ---------- */
+#rilh-lateral{
+  position:fixed;
+  right:26px; top:50%;
+  transform:translateY(-50%);
+  z-index:5;
+  display:flex; flex-direction:column;
+  gap:16px; align-items:flex-end;
+}
+.rilh-item{
+  background:none; border:none; padding:0; cursor:pointer;
+  display:flex; align-items:center; justify-content:flex-end; gap:12px;
+}
+.rilh-letra{
+  color:var(--amarelo);
+  font-size:27px; line-height:1;
+  transition:text-shadow .25s, transform .25s;
+}
+.rilh-palavra{
+  color:var(--amarelo);
+  font-size:11.5px; letter-spacing:2.5px; text-transform:uppercase; font-weight:600;
+  white-space:nowrap;
+  opacity:0; transform:translateX(10px);
+  transition:opacity .25s ease, transform .25s ease;
+}
+.rilh-item:hover .rilh-palavra,
+.rilh-item:focus-visible .rilh-palavra,
+.rilh-item.ativo .rilh-palavra{opacity:1; transform:translateX(0);}
+.rilh-item:hover .rilh-letra,
+.rilh-item:focus-visible .rilh-letra,
+.rilh-item.ativo .rilh-letra{text-shadow:0 0 14px rgba(240,196,32,0.65); transform:scale(1.12);}
+.rilh-item:focus{outline:none;}
+.rilh-item:focus-visible{outline:1px solid var(--amarelo); outline-offset:6px; border-radius:4px;}
+
+@media (max-width:900px){
+  #rilh-lateral{right:12px; gap:12px;}
+  .rilh-letra{font-size:20px;}
+  .rilh-palavra{font-size:10px; letter-spacing:1.5px;}
 }
 .display{font-family:"Arial Black","Helvetica Neue",Arial,sans-serif;font-weight:900;letter-spacing:3px;text-transform:uppercase;}
 .mono{font-family:"SF Mono","Consolas","Courier New",monospace;}
@@ -190,6 +231,13 @@ tr:hover td{background:#191919;}
 <video id="video-fundo" autoplay loop muted playsinline poster="brasao-poster.jpg" aria-hidden="true">
   <source src="brasao-animado.mp4" type="video/mp4">
 </video>
+
+<div id="rilh-lateral" aria-label="R.I.L.H. — Respeito, Irmandade, Lealdade, Honra">
+  <button class="rilh-item" onclick="alternarRilh(this)"><span class="rilh-palavra">Respeito</span><span class="rilh-letra display">R</span></button>
+  <button class="rilh-item" onclick="alternarRilh(this)"><span class="rilh-palavra">Irmandade</span><span class="rilh-letra display">I</span></button>
+  <button class="rilh-item" onclick="alternarRilh(this)"><span class="rilh-palavra">Lealdade</span><span class="rilh-letra display">L</span></button>
+  <button class="rilh-item" onclick="alternarRilh(this)"><span class="rilh-palavra">Honra</span><span class="rilh-letra display">H</span></button>
+</div>
 
 <div id="public-screen">
   <div class="public-card">
@@ -431,6 +479,13 @@ function irParaPublico(){ state.screen='publico'; render(); }
 function irParaLogin(){ state.screen='login'; render(); }
 function irParaCadastro(){ state.screen='cadastro'; render(); }
 
+/* No celular não existe "passar o mouse": o toque revela a palavra. */
+function alternarRilh(el){
+  var jaAtivo = el.classList.contains('ativo');
+  document.querySelectorAll('.rilh-item').forEach(function(i){ i.classList.remove('ativo'); });
+  if(!jaAtivo) el.classList.add('ativo');
+}
+
 /* ============ Render raiz ============ */
 function render(){
   document.getElementById('crest-public').innerHTML = crestSvg(150);
@@ -441,6 +496,9 @@ function render(){
   document.getElementById('cadastro-screen').style.display = state.screen==='cadastro' ? 'flex' : 'none';
   document.getElementById('login-screen').style.display = state.screen==='login' ? 'flex' : 'none';
   document.getElementById('app-screen').style.display = state.screen==='app' ? 'block' : 'none';
+
+  // A sigla fica nas telas públicas; no painel ela sobreporia as tabelas.
+  document.getElementById('rilh-lateral').style.display = state.screen==='app' ? 'none' : 'flex';
 
   if(state.screen==='cadastro'){ renderCadastroForm(); return; }
   if(state.screen!=='app') return;
