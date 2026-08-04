@@ -119,3 +119,18 @@ class Comunicado(Base):
     autor_id = Column(Integer, ForeignKey("integrantes.id"), nullable=True)
 
     autor = relationship("Integrante")
+
+
+class Documento(Base):
+    __tablename__ = "documentos"
+
+    id = Column(Integer, primary_key=True, index=True)
+    titulo = Column(String(150), nullable=False)
+    categoria = Column(String(30), default="Outro")  # Ata, Regimento, Contrato, Financeiro, Outro
+    arquivo_nome = Column(String(255), nullable=False)
+    arquivo_path = Column(String(255), nullable=False)
+    tamanho_kb = Column(Integer, default=0)
+    data_upload = Column(DateTime, default=datetime.utcnow)
+    integrante_id = Column(Integer, ForeignKey("integrantes.id"), nullable=True)
+
+    integrante = relationship("Integrante")

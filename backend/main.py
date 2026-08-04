@@ -4,11 +4,15 @@ Portal Imaculados M.C. - API principal (FastAPI)
 Rodar em desenvolvimento:
     uvicorn main:app --reload
 """
+import os
+import uuid
 from datetime import date
 from decimal import Decimal
+from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -22,6 +26,11 @@ app = FastAPI(title="Portal Imaculados M.C. API", version="0.1.0")
 # Cargos oficiais do clube e valor padrão da mensalidade
 CARGOS_VALIDOS = ["Presidente", "Vice-Presidente", "Diretor", "Tesoureiro", "Disciplina", "Integrante", "Prospero"]
 VALOR_MENSALIDADE_PADRAO = Decimal("40.00")
+
+# Pasta local onde os arquivos enviados (atas, contratos etc.) são armazenados
+PASTA_UPLOADS = Path(__file__).parent / "uploads"
+PASTA_UPLOADS.mkdir(exist_ok=True)
+TAMANHO_MAXIMO_MB = 15
 
 # Libera acesso do app desktop / futuro PWA. Em produção, restrinja allow_origins.
 app.add_middleware(
@@ -459,3 +468,105 @@ def excluir_comunicado(
     db.delete(comunicado)
     db.commit()
     return {"detail": "Comunicado excluído"}
+
+
+# ---------- Documentos ----------
+EXTENSOES_PERMITIDAS = {".pdf", ".doc", ".docx", ".jpg", ".jpeg", ".png", ".xlsx", ".txt"}
+
+
+def _documento_para_out(doc: models.Documento) -> schemas.DocumentoOut:
+    item = schemas.DocumentoOut.model_validate(doc)
+    item.integrante_nome = doc.integrante.nome if doc.integrante else None
+    return item
+
+
+@app.get("/documentos", response_model=list[schemas.DocumentoOut])
+def listar_documentos(
+    categoria: str | None = None,
+    db: Session = Depends(get_db),
+    usuario: models.Usuario = Depends(auth.obter_usuario_atual),
+):
+    consulta = db.query(models.Documento)
+    if categoria:
+        consulta = consulta.filter(models.Documento.categoria == categoria)
+    documentos = consulta.order_by(models.Documento.data_upload.desc()).all()
+    return [_documento_para_out(d) for d in documentos]
+
+
+@app.post("/documentos", response_model=schemas.DocumentoOut)
+async def enviar_documento(
+    titulo: str = Form(...),
+    categoria: str = Form("Outro"),
+    arquivo: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    usuario: models.Usuario = Depends(
+        auth.exigir_cargo("Presidente", "Vice-Presidente", "Diretor", "Tesoureiro")
+    ),
+):
+    extensao = Path(arquivo.filename).suffix.lower()
+    if extensao not in EXTENSOES_PERMITIDAS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Tipo de arquivo não permitido. Use: {', '.join(sorted(EXTENSOES_PERMITIDAS))}",
+        )
+
+    conteudo = await arquivo.read()
+    tamanho_kb = len(conteudo) // 1024
+    if tamanho_kb > TAMANHO_MAXIMO_MB * 1024:
+        raise HTTPException(status_code=400, detail=f"Arquivo maior que {TAMANHO_MAXIMO_MB}MB")
+
+    nome_armazenado = f"{uuid.uuid4().hex}{extensao}"
+    caminho_destino = PASTA_UPLOADS / nome_armazenado
+    with open(caminho_destino, "wb") as f:
+        f.write(conteudo)
+
+    novo = models.Documento(
+        titulo=titulo,
+        categoria=categoria,
+        arquivo_nome=arquivo.filename,
+        arquivo_path=nome_armazenado,
+        tamanho_kb=tamanho_kb,
+        integrante_id=usuario.integrante_id,
+    )
+    db.add(novo)
+    db.commit()
+    db.refresh(novo)
+    return _documento_para_out(novo)
+
+
+@app.get("/documentos/{documento_id}/download")
+def baixar_documento(
+    documento_id: int,
+    db: Session = Depends(get_db),
+    usuario: models.Usuario = Depends(auth.obter_usuario_atual),
+):
+    documento = db.query(models.Documento).filter(models.Documento.id == documento_id).first()
+    if not documento:
+        raise HTTPException(status_code=404, detail="Documento não encontrado")
+
+    caminho = PASTA_UPLOADS / documento.arquivo_path
+    if not caminho.exists():
+        raise HTTPException(status_code=404, detail="Arquivo não encontrado no servidor")
+
+    return FileResponse(path=caminho, filename=documento.arquivo_nome)
+
+
+@app.delete("/documentos/{documento_id}")
+def excluir_documento(
+    documento_id: int,
+    db: Session = Depends(get_db),
+    usuario: models.Usuario = Depends(
+        auth.exigir_cargo("Presidente", "Vice-Presidente", "Diretor", "Tesoureiro")
+    ),
+):
+    documento = db.query(models.Documento).filter(models.Documento.id == documento_id).first()
+    if not documento:
+        raise HTTPException(status_code=404, detail="Documento não encontrado")
+
+    caminho = PASTA_UPLOADS / documento.arquivo_path
+    if caminho.exists():
+        os.remove(caminho)
+
+    db.delete(documento)
+    db.commit()
+    return {"detail": "Documento excluído"}

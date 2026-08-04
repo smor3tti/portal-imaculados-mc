@@ -163,6 +163,19 @@ class ComunicadoOut(ComunicadoBase):
     autor_nome: Optional[str] = None
 
 
+# ---------- Documentos ----------
+class DocumentoOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    titulo: str
+    categoria: str
+    arquivo_nome: str
+    tamanho_kb: int
+    data_upload: datetime
+    integrante_id: Optional[int] = None
+    integrante_nome: Optional[str] = None
+
+
 # ---------- Dashboard ----------
 class AniversarianteResumo(BaseModel):
     id: int
