@@ -21,7 +21,7 @@ class Usuario(Base):
     login = Column(String(50), unique=True, nullable=False, index=True)
     senha_hash = Column(String(255), nullable=False)
     cargo = Column(String(30), nullable=False, default="Integrante")
-    # Presidente, Vice, Diretor, Tesoureiro, Secretário, Integrante
+    # Cargos oficiais: Presidente, Vice-Presidente, Diretor, Tesoureiro, Disciplina, Integrante
     ativo = Column(Boolean, default=True)
     criado_em = Column(DateTime, default=datetime.utcnow)
 

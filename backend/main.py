@@ -19,6 +19,10 @@ from database import get_db, init_db
 
 app = FastAPI(title="Portal Imaculados M.C. API", version="0.1.0")
 
+# Cargos oficiais do clube e valor padrão da mensalidade
+CARGOS_VALIDOS = ["Presidente", "Vice-Presidente", "Diretor", "Tesoureiro", "Disciplina", "Integrante"]
+VALOR_MENSALIDADE_PADRAO = Decimal("40.00")
+
 # Libera acesso do app desktop / futuro PWA. Em produção, restrinja allow_origins.
 app.add_middleware(
     CORSMiddleware,
@@ -103,7 +107,7 @@ def listar_integrantes(
 def criar_integrante(
     dados: schemas.IntegranteCreate,
     db: Session = Depends(get_db),
-    usuario: models.Usuario = Depends(auth.exigir_cargo("Presidente", "Tesoureiro", "Secretário")),
+    usuario: models.Usuario = Depends(auth.exigir_cargo("Presidente", "Vice-Presidente", "Diretor")),
 ):
     novo = models.Integrante(**dados.model_dump())
     db.add(novo)
@@ -117,7 +121,7 @@ def atualizar_integrante(
     integrante_id: int,
     dados: schemas.IntegranteUpdate,
     db: Session = Depends(get_db),
-    usuario: models.Usuario = Depends(auth.exigir_cargo("Presidente", "Tesoureiro", "Secretário")),
+    usuario: models.Usuario = Depends(auth.exigir_cargo("Presidente", "Vice-Presidente", "Diretor")),
 ):
     integrante = db.query(models.Integrante).filter(models.Integrante.id == integrante_id).first()
     if not integrante:

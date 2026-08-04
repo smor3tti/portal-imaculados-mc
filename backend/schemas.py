@@ -86,7 +86,7 @@ class MensalidadeCreate(BaseModel):
     integrante_id: int
     referencia: str  # "2026-08"
     vencimento: date
-    valor: Decimal
+    valor: Decimal = Decimal("40.00")  # valor padrão da mensalidade do clube
 
 
 class MensalidadePagamento(BaseModel):

@@ -18,6 +18,7 @@
   --muted:#9a9a9a;
   --muted-2:#6f6f6f;
   --danger:#e2574c;
+  --vermelho:#8B1E1E;
   --success:#4f9d6c;
 }
 *{box-sizing:border-box;margin:0;padding:0;}
@@ -102,9 +103,10 @@ td{padding:13px 16px;font-size:13px;border-top:1px solid var(--border);color:var
 tr:hover td{background:#191919;}
 .status-pill{display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;}
 .status-ativo{background:rgba(79,157,108,0.15);color:var(--success);}
-.status-inativo{background:rgba(226,87,76,0.15);color:var(--danger);}
+.status-inativo{background:rgba(139,30,30,0.35);color:#ff8478;}
 .status-pago{background:rgba(79,157,108,0.15);color:var(--success);}
-.status-pendente{background:rgba(226,87,76,0.15);color:var(--danger);}
+.status-pendente{background:rgba(139,30,30,0.35);color:#ff8478;}
+.card-financeiro{border-left:3px solid var(--vermelho);}
 .acao-link{background:none;border:none;color:var(--gold);font-size:12px;cursor:pointer;font-weight:600;padding:0;}
 .acao-link:hover{text-decoration:underline;}
 .vazio{text-align:center;color:var(--muted);padding:32px;font-size:13px;}
@@ -200,7 +202,7 @@ var demoIntegrantes = [
   {id:1, nome:'Marcos Andrade', apelido:'Falcão', cargo:'Presidente', status:'Ativo', moto_modelo:'Harley-Davidson Fat Boy', moto_placa:'ABC1234', telefone:'(11) 98888-1010', email:'falcao@imaculadosmc.com'},
   {id:2, nome:'Rafael Souza', apelido:'Cabo', cargo:'Vice-Presidente', status:'Ativo', moto_modelo:'Honda Shadow 750', moto_placa:'DEF5678', telefone:'(11) 98888-1020', email:'cabo@imaculadosmc.com'},
   {id:3, nome:'Juliana Martins', apelido:'Fera', cargo:'Tesoureiro', status:'Ativo', moto_modelo:'Yamaha Virago 250', moto_placa:'GHI9012', telefone:'(11) 98888-1030', email:'fera@imaculadosmc.com'},
-  {id:4, nome:'Eduardo Lima', apelido:'Duds', cargo:'Secretário', status:'Ativo', moto_modelo:'Suzuki Boulevard M800', moto_placa:'JKL3456', telefone:'(11) 98888-1040', email:'duds@imaculadosmc.com'},
+  {id:4, nome:'Eduardo Lima', apelido:'Duds', cargo:'Disciplina', status:'Ativo', moto_modelo:'Suzuki Boulevard M800', moto_placa:'JKL3456', telefone:'(11) 98888-1040', email:'duds@imaculadosmc.com'},
   {id:5, nome:'Bruno Costa', apelido:'Urso', cargo:'Integrante', status:'Ativo', moto_modelo:'Harley Sportster Iron 883', moto_placa:'MNO7890', telefone:'(11) 98888-1050', email:'urso@imaculadosmc.com'},
   {id:6, nome:'Camila Ferreira', apelido:'Índia', cargo:'Integrante', status:'Ativo', moto_modelo:'Kawasaki Vulcan S', moto_placa:'PQR1122', telefone:'(11) 98888-1060', email:'india@imaculadosmc.com'},
   {id:7, nome:'Diego Rocha', apelido:'Cigano', cargo:'Integrante', status:'Inativo', moto_modelo:'Honda Shadow 600', moto_placa:'STU3344', telefone:'(11) 98888-1070', email:'cigano@imaculadosmc.com'},
@@ -208,13 +210,13 @@ var demoIntegrantes = [
 ];
 
 var demoMensalidades = [
-  {id:1, integrante_id:1, referencia:'2026-08', vencimento:'2026-08-10', valor:120.00, pago:true, forma_pagamento:'Pix'},
-  {id:2, integrante_id:2, referencia:'2026-08', vencimento:'2026-08-10', valor:120.00, pago:true, forma_pagamento:'Pix'},
-  {id:3, integrante_id:3, referencia:'2026-08', vencimento:'2026-08-10', valor:120.00, pago:true, forma_pagamento:'Dinheiro'},
-  {id:4, integrante_id:4, referencia:'2026-08', vencimento:'2026-08-10', valor:120.00, pago:false, forma_pagamento:null},
-  {id:5, integrante_id:5, referencia:'2026-08', vencimento:'2026-08-10', valor:120.00, pago:true, forma_pagamento:'Pix'},
-  {id:6, integrante_id:6, referencia:'2026-08', vencimento:'2026-08-10', valor:120.00, pago:false, forma_pagamento:null},
-  {id:7, integrante_id:8, referencia:'2026-08', vencimento:'2026-08-10', valor:120.00, pago:true, forma_pagamento:'Cartão'}
+  {id:1, integrante_id:1, referencia:'2026-08', vencimento:'2026-08-10', valor:40.00, pago:true, forma_pagamento:'Pix'},
+  {id:2, integrante_id:2, referencia:'2026-08', vencimento:'2026-08-10', valor:40.00, pago:true, forma_pagamento:'Pix'},
+  {id:3, integrante_id:3, referencia:'2026-08', vencimento:'2026-08-10', valor:40.00, pago:true, forma_pagamento:'Dinheiro'},
+  {id:4, integrante_id:4, referencia:'2026-08', vencimento:'2026-08-10', valor:40.00, pago:false, forma_pagamento:null},
+  {id:5, integrante_id:5, referencia:'2026-08', vencimento:'2026-08-10', valor:40.00, pago:true, forma_pagamento:'Pix'},
+  {id:6, integrante_id:6, referencia:'2026-08', vencimento:'2026-08-10', valor:40.00, pago:false, forma_pagamento:null},
+  {id:7, integrante_id:8, referencia:'2026-08', vencimento:'2026-08-10', valor:40.00, pago:true, forma_pagamento:'Cartão'}
 ];
 
 var demoDashboard = {
@@ -351,7 +353,7 @@ async function renderDashboard(body){
       '<div class="card"><div class="card-titulo">Integrantes ativos</div><div class="card-valor">'+ (d.total_integrantes!==undefined?d.total_integrantes:totalAtivos) +'</div></div>' +
       '<div class="card"><div class="card-titulo">Mensalidades em dia</div><div class="card-valor">'+ (d.percentual_mensalidades_pagas!==undefined?d.percentual_mensalidades_pagas:pct) +'%</div>' +
         '<div class="progress"><div class="progress-chunk" style="width:'+(d.percentual_mensalidades_pagas!==undefined?d.percentual_mensalidades_pagas:pct)+'%"></div></div></div>' +
-      '<div class="card"><div class="card-titulo">Saldo em caixa</div><div class="card-valor mono">'+ fmtMoeda(d.saldo_caixa!==undefined?d.saldo_caixa:d) +'</div></div>' +
+      '<div class="card card-financeiro"><div class="card-titulo">Saldo em caixa</div><div class="card-valor mono">'+ fmtMoeda(d.saldo_caixa!==undefined?d.saldo_caixa:d) +'</div></div>' +
       '<div class="card"><div class="card-titulo">Próximo evento</div><div class="card-valor" style="font-size:16px;">'+ (d.proximo_evento_nome||'—') +'</div><div class="card-sub">'+ fmtData(d.proximo_evento_data) +'</div></div>' +
     '</div>';
 }
@@ -406,8 +408,11 @@ function abrirModalNovoIntegrante(){
           '<div class="campo"><label>Apelido</label><input type="text" id="novo-apelido"></div>' +
         '</div>' +
         '<div class="grid-2">' +
-          '<div class="campo"><label>Cargo</label><input type="text" id="novo-cargo" placeholder="Integrante" value="Integrante"></div>' +
-          '<div class="campo"><label>Status</label><input type="text" id="novo-status" placeholder="Ativo" value="Ativo"></div>' +
+          '<div class="campo"><label>Cargo</label><select id="novo-cargo">' +
+            '<option>Integrante</option><option>Presidente</option><option>Vice-Presidente</option>' +
+            '<option>Diretor</option><option>Tesoureiro</option><option>Disciplina</option>' +
+          '</select></div>' +
+          '<div class="campo"><label>Status</label><select id="novo-status"><option>Ativo</option><option>Inativo</option></select></div>' +
         '</div>' +
         '<div class="grid-2">' +
           '<div class="campo"><label>Moto (modelo)</label><input type="text" id="novo-moto"></div>' +
