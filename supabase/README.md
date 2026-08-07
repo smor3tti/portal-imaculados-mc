@@ -127,3 +127,35 @@ interface para a mesma lista, além dos novos campos (padrinho, veículo, CNH).
   regras de segurança. No portal use apenas a `anon key`.
 - **Backups:** o plano gratuito não faz backup automático. Exporte periodicamente
   em *Database → Backups*, ou considere o plano pago quando houver dados reais.
+
+---
+
+## Portal conectado (feito)
+
+O site já aponta para este banco. Detalhes de como funciona:
+
+**Login** — o portal usa o Supabase Auth. Cada integrante entra com **e-mail e senha
+própria**; ninguém, nem a diretoria, consegue ver a senha de outra pessoa.
+
+**Primeiro acesso** — a pessoa clica em "Primeiro acesso" e cadastra uma senha
+usando **o mesmo e-mail da ficha**. Um gatilho no banco encontra o integrante
+por esse e-mail e libera o acesso automaticamente, já com o cargo correto.
+Quem se cadastra com um e-mail que não está em nenhuma ficha entra **inativo**,
+e precisa ser liberado manualmente na aba Acessos.
+
+**Esqueci a senha** — envia link de redefinição por e-mail. Na aba Acessos, o
+botão de "resetar senha" também dispara esse mesmo link, em vez de gerar uma
+senha temporária: com a chave pública não é possível (nem desejável) definir a
+senha de outra pessoa.
+
+**Chave usada no site** — a `publishable key`, que é pública por natureza e não
+dá acesso a nada sozinha: quem decide o que cada um vê são as políticas de
+segurança do banco. A `service_role key` **nunca** deve ir para o site.
+
+### Um cuidado que rendeu correção
+
+Vários módulos do portal verificavam apenas se havia uma "URL de API" configurada
+para decidir se buscavam dados reais. No modo Supabase esse campo fica vazio, e o
+resultado era o dashboard e as solicitações exibindo **dados fictícios mesmo
+conectados ao banco** — sem erro visível. Foi corrigido com uma verificação única
+(`temBackend()`) usada em todos os módulos.

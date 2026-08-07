@@ -333,19 +333,23 @@ tr:hover td{background:#191919;}
     <div class="subtitulo-login">Portal de gestão da irmandade</div>
     <form id="form-login" onsubmit="return handleLogin(event)">
       <div class="campo">
-        <label for="in-login">Usuário</label>
-        <input type="text" id="in-login" autocomplete="username" placeholder="login">
+        <label for="in-login">E-mail</label>
+        <input type="email" id="in-login" autocomplete="username" placeholder="seu@email.com">
       </div>
       <div class="campo">
         <label for="in-senha">Senha</label>
-        <input type="password" id="in-senha" autocomplete="current-password" placeholder="senha">
+        <input type="password" id="in-senha" autocomplete="current-password" placeholder="sua senha">
       </div>
       <button type="submit" class="btn-entrar">Entrar</button>
       <div class="erro-login" id="erro-login"></div>
     </form>
+    <div style="display:flex;justify-content:space-between;gap:10px;margin-top:12px;">
+      <button class="acao-link" onclick="criarConta()">Primeiro acesso</button>
+      <button class="acao-link" onclick="esqueciSenha()">Esqueci a senha</button>
+    </div>
     <div class="dica-login">
-      <b>Modo demonstração:</b> use <b>presidente</b> / <b>imaculados123</b>.<br>
-      Para conectar ao backend real, faça login normalmente após configurar a URL da API no topo do painel.
+      <b>Primeiro acesso:</b> use o mesmo e-mail que você informou na ficha cadastral
+      e escolha uma senha. O sistema reconhece você automaticamente.
     </div>
   </div>
 </div>
@@ -375,6 +379,7 @@ tr:hover td{background:#191919;}
   </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <div id="modal-root"></div>
 
 <div id="faixa-instalar">
@@ -400,6 +405,7 @@ var state = {
   view:'dashboard',
   token:null, cargo:null, nome:null,
   permissoes:[],
+  backend:'supabase',   // 'supabase' | 'api' | 'demo'
   apiBase:'',
   membrosFiltro:'',
   mensalidadesFiltro:'todas',
@@ -411,6 +417,7 @@ var CATALOGO_PERMISSOES = [
   {chave:'ver_integrantes', label:'Ver a lista de integrantes', grupo:'Integrantes'},
   {chave:'editar_integrantes', label:'Cadastrar e editar integrantes', grupo:'Integrantes'},
   {chave:'excluir_integrantes', label:'Excluir integrantes', grupo:'Integrantes'},
+  {chave:'ver_dados_sensiveis', label:'Ver CNH e endereço dos integrantes', grupo:'Integrantes'},
   {chave:'ver_financeiro', label:'Ver mensalidades e caixa', grupo:'Financeiro'},
   {chave:'editar_financeiro', label:'Lançar mensalidades e registrar pagamentos', grupo:'Financeiro'},
   {chave:'ver_eventos', label:'Ver eventos e confirmar presença', grupo:'Eventos'},
@@ -425,19 +432,36 @@ var CATALOGO_PERMISSOES = [
 ];
 
 var TODAS_PERMISSOES = CATALOGO_PERMISSOES.map(function(p){return p.chave;});
-var BASICO = ['ver_dashboard','ver_eventos','ver_comunicados'];
-var INTEGRANTE_PERM = BASICO.concat(['ver_integrantes','ver_documentos']);
-var DIRETORIA_PERM = INTEGRANTE_PERM.concat(['editar_integrantes','ver_financeiro','editar_eventos','editar_comunicados','editar_documentos','ver_solicitacoes','analisar_solicitacoes']);
 
+/* Padrões idênticos aos da tabela 'cargos' no banco. Se mudar lá, mude aqui. */
 var PADROES_POR_CARGO = {
   'Presidente': TODAS_PERMISSOES.slice(),
-  'Vice-Presidente': DIRETORIA_PERM.slice(),
-  'Diretor': DIRETORIA_PERM.slice(),
-  'Tesoureiro': INTEGRANTE_PERM.concat(['ver_financeiro','editar_financeiro','editar_documentos']),
-  'Disciplina': INTEGRANTE_PERM.concat(['editar_comunicados']),
-  'Integrante': INTEGRANTE_PERM.slice(),
-  'Prospero': BASICO.slice()
+  'Vice Presidente': ['ver_dashboard','ver_integrantes','editar_integrantes','ver_dados_sensiveis',
+    'ver_financeiro','ver_eventos','editar_eventos','ver_comunicados','editar_comunicados',
+    'ver_documentos','editar_documentos','ver_solicitacoes','analisar_solicitacoes','gerenciar_acessos'],
+  'Diretor Geral': ['ver_dashboard','ver_integrantes','editar_integrantes','ver_dados_sensiveis',
+    'ver_financeiro','ver_eventos','editar_eventos','ver_comunicados','editar_comunicados',
+    'ver_documentos','editar_documentos','ver_solicitacoes','analisar_solicitacoes'],
+  'Diretor Disciplina': ['ver_dashboard','ver_integrantes','ver_dados_sensiveis','ver_eventos',
+    'ver_comunicados','editar_comunicados','ver_documentos','ver_solicitacoes','analisar_solicitacoes'],
+  'Diretor Social': ['ver_dashboard','ver_integrantes','ver_eventos','editar_eventos',
+    'ver_comunicados','editar_comunicados','ver_documentos'],
+  'Diretor de Eventos': ['ver_dashboard','ver_integrantes','ver_eventos','editar_eventos',
+    'ver_comunicados','ver_documentos'],
+  'Tesoureiro': ['ver_dashboard','ver_integrantes','ver_financeiro','editar_financeiro',
+    'ver_eventos','ver_comunicados','ver_documentos','editar_documentos'],
+  'Secretário': ['ver_dashboard','ver_integrantes','editar_integrantes','ver_dados_sensiveis',
+    'ver_eventos','editar_eventos','ver_comunicados','editar_comunicados',
+    'ver_documentos','editar_documentos','ver_solicitacoes','analisar_solicitacoes'],
+  'Conselheiro': ['ver_dashboard','ver_integrantes','ver_financeiro','ver_eventos',
+    'ver_comunicados','ver_documentos','ver_solicitacoes'],
+  'Imprensa/Marketing': ['ver_dashboard','ver_integrantes','ver_eventos',
+    'ver_comunicados','editar_comunicados','ver_documentos'],
+  'Membro com Brasão': ['ver_dashboard','ver_integrantes','ver_eventos','ver_comunicados','ver_documentos'],
+  'Próspero': ['ver_dashboard','ver_eventos','ver_comunicados']
 };
+
+var BASICO = PADROES_POR_CARGO['Próspero'];
 
 var CARGOS = Object.keys(PADROES_POR_CARGO);
 
@@ -457,15 +481,15 @@ function podeFazer(chave){
 
 /* ============ Dados de demonstração ============ */
 var demoIntegrantes = [
-  {id:1, nome:'Marcos Andrade', apelido:'Falcão', cargo:'Presidente', status:'Ativo', moto_modelo:'Harley-Davidson Fat Boy', moto_placa:'ABC1234', telefone:'(11) 98888-1010', email:'falcao@imaculadosmc.com'},
-  {id:2, nome:'Rafael Souza', apelido:'Cabo', cargo:'Vice-Presidente', status:'Ativo', moto_modelo:'Honda Shadow 750', moto_placa:'DEF5678', telefone:'(11) 98888-1020', email:'cabo@imaculadosmc.com'},
-  {id:3, nome:'Juliana Martins', apelido:'Fera', cargo:'Tesoureiro', status:'Ativo', moto_modelo:'Yamaha Virago 250', moto_placa:'GHI9012', telefone:'(11) 98888-1030', email:'fera@imaculadosmc.com'},
-  {id:4, nome:'Eduardo Lima', apelido:'Duds', cargo:'Disciplina', status:'Ativo', moto_modelo:'Suzuki Boulevard M800', moto_placa:'JKL3456', telefone:'(11) 98888-1040', email:'duds@imaculadosmc.com'},
-  {id:5, nome:'Bruno Costa', apelido:'Urso', cargo:'Integrante', status:'Ativo', moto_modelo:'Harley Sportster Iron 883', moto_placa:'MNO7890', telefone:'(11) 98888-1050', email:'urso@imaculadosmc.com'},
-  {id:6, nome:'Camila Ferreira', apelido:'Índia', cargo:'Integrante', status:'Ativo', moto_modelo:'Kawasaki Vulcan S', moto_placa:'PQR1122', telefone:'(11) 98888-1060', email:'india@imaculadosmc.com'},
-  {id:7, nome:'Diego Rocha', apelido:'Cigano', cargo:'Integrante', status:'Inativo', moto_modelo:'Honda Shadow 600', moto_placa:'STU3344', telefone:'(11) 98888-1070', email:'cigano@imaculadosmc.com'},
-  {id:8, nome:'Felipe Nogueira', apelido:'Padre', cargo:'Diretor', status:'Ativo', moto_modelo:'Triumph Bonneville T120', moto_placa:'VWX5566', telefone:'(11) 98888-1080', email:'padre@imaculadosmc.com'},
-  {id:9, nome:'Thiago Alves', apelido:'Novato', cargo:'Prospero', status:'Ativo', moto_modelo:'Honda CB 500', moto_placa:'YZA7788', telefone:'(11) 98888-1090', email:'novato@imaculadosmc.com'}
+  {id:1, nome_completo:'Marcos Andrade', nome_no_colete:'Falcão', cargo:'Presidente', status:'Ativo', veiculo_principal:'Moto', placa_veiculo:'ABC1D23', telefone:'(11) 98888-1010', email:'falcao@imaculadosmc.com', data_nascimento:'1985-08-12', entrada_mes_ano:'03/2014', padrinho_nome:'', tipo_sanguineo:'O+'},
+  {id:2, nome_completo:'Rafael Souza', nome_no_colete:'Cabo', cargo:'Vice Presidente', status:'Ativo', veiculo_principal:'Moto', placa_veiculo:'DEF4G56', telefone:'(11) 98888-1020', email:'cabo@imaculadosmc.com', data_nascimento:'1988-11-05', entrada_mes_ano:'06/2015', padrinho_nome:'Falcão', tipo_sanguineo:'A-'},
+  {id:3, nome_completo:'Juliana Martins', nome_no_colete:'Fera', cargo:'Tesoureiro', status:'Ativo', veiculo_principal:'Moto', placa_veiculo:'GHI7J89', telefone:'(11) 98888-1030', email:'fera@imaculadosmc.com', data_nascimento:'1990-03-20', entrada_mes_ano:'01/2018', padrinho_nome:'Falcão', tipo_sanguineo:'B+'},
+  {id:4, nome_completo:'Eduardo Lima', nome_no_colete:'Duds', cargo:'Secretário', status:'Ativo', veiculo_principal:'Moto', placa_veiculo:'JKL3M45', telefone:'(11) 98888-1040', email:'duds@imaculadosmc.com', data_nascimento:'1992-12-25', entrada_mes_ano:'09/2019', padrinho_nome:'Cabo', tipo_sanguineo:'AB+'},
+  {id:5, nome_completo:'Bruno Costa', nome_no_colete:'Urso', cargo:'Membro com Brasão', status:'Ativo', veiculo_principal:'Moto', placa_veiculo:'MNO7P89', telefone:'(11) 98888-1050', email:'urso@imaculadosmc.com', data_nascimento:'1987-05-30', entrada_mes_ano:'02/2020', padrinho_nome:'Fera', tipo_sanguineo:'O-'},
+  {id:6, nome_completo:'Camila Ferreira', nome_no_colete:'Índia', cargo:'Imprensa/Marketing', status:'Ativo', veiculo_principal:'Moto', placa_veiculo:'PQR1S22', telefone:'(11) 98888-1060', email:'india@imaculadosmc.com', data_nascimento:'1995-08-27', entrada_mes_ano:'11/2021', padrinho_nome:'Duds', tipo_sanguineo:'A+'},
+  {id:7, nome_completo:'Diego Rocha', nome_no_colete:'Cigano', cargo:'Membro com Brasão', status:'Inativo', veiculo_principal:'Moto', placa_veiculo:'STU3V44', telefone:'(11) 98888-1070', email:'cigano@imaculadosmc.com', data_nascimento:'1983-02-14', entrada_mes_ano:'05/2016', padrinho_nome:'Falcão', tipo_sanguineo:'B-'},
+  {id:8, nome_completo:'Felipe Nogueira', nome_no_colete:'Padre', cargo:'Diretor Geral', status:'Ativo', veiculo_principal:'Moto', placa_veiculo:'VWX5Y66', telefone:'(11) 98888-1080', email:'padre@imaculadosmc.com', data_nascimento:'1980-08-19', entrada_mes_ano:'03/2014', padrinho_nome:'', tipo_sanguineo:'O+'},
+  {id:9, nome_completo:'Thiago Alves', nome_no_colete:'Novato', cargo:'Próspero', status:'Ativo', veiculo_principal:'Carro', placa_veiculo:'YZA7B88', telefone:'(11) 98888-1090', email:'novato@imaculadosmc.com', data_nascimento:'1999-09-02', entrada_mes_ano:'06/2026', padrinho_nome:'Urso', tipo_sanguineo:'A+'}
 ];
 
 var demoMensalidades = [
@@ -507,10 +531,9 @@ var demoComunicados = [
 
 var MES_ATUAL = new Date('2026-08-04').getMonth() + 1;
 var demoAniversariantes = demoIntegrantes.filter(function(i){
-  return [8,15,3].indexOf(i.id) > -1; // ids fictícios usados só para popular a demonstração
-}).map(function(i, idx){
-  var dias = ['12','19','27'];
-  return {id:i.id, nome:i.nome, apelido:i.apelido, data_nascimento:'1990-08-'+dias[idx]};
+  return i.data_nascimento && i.data_nascimento.slice(5,7) === '08' && i.status === 'Ativo';
+}).map(function(i){
+  return {id:i.id, nome:i.nome_completo, apelido:i.nome_no_colete, data_nascimento:i.data_nascimento};
 });
 
 var demoDocumentos = [
@@ -546,7 +569,377 @@ function listaMensalidades(){ return mensalidadesAtuais || demoMensalidades; }
 
 function integranteNome(id){
   var i = listaIntegrantes().find(function(x){return x.id===id;});
-  return i ? (i.nome + (i.apelido ? ' "'+i.apelido+'"' : '')) : ('#'+id);
+  if(!i) return '#'+id;
+  return i.nome_completo + (i.nome_no_colete ? ' "'+i.nome_no_colete+'"' : '');
+}
+
+/* ============ Supabase ============
+   O site conversa com o banco pelo cliente oficial do Supabase. Para não
+   reescrever todos os módulos, o adaptador abaixo recebe as MESMAS "rotas" que
+   o resto do código já usava (/integrantes, /eventos...) e as traduz em
+   consultas ao banco. Assim, o portal funciona igual nos três modos:
+   Supabase, planilha do Google (Apps Script) ou demonstração.
+
+   A chave abaixo é PÚBLICA por natureza (fica visível no navegador). Ela não dá
+   acesso a nada sozinha: quem decide o que cada pessoa vê são as políticas de
+   segurança do banco, ligadas ao login. NUNCA coloque aqui a chave de serviço
+   (service_role), que ignora todas essas regras. */
+var SUPABASE_URL = 'https://fcobgupbqnxzbqvbcjfs.supabase.co';
+var SUPABASE_KEY = 'sb_publishable_oQJLzTLwgzM3fO4Jk-mcIA_Fki8cf20';
+
+var sb = null;
+function clienteSupabase(){
+  if (sb) return sb;
+  if (typeof window.supabase === 'undefined') return null;
+  sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  return sb;
+}
+function usandoSupabase(){ return state.backend === 'supabase'; }
+/* Existe um backend real (Supabase ou API própria)? Se não, é demonstração.
+   Sem isso, telas ficariam mostrando dados fictícios mesmo conectadas. */
+function temBackend(){ return usandoSupabase() || !!state.apiBase; }
+
+function erroSb(resposta){
+  if (resposta.error) throw new Error(traduzErro(resposta.error.message));
+  return resposta.data;
+}
+
+/* Mensagens do Supabase vêm em inglês e são pouco claras para quem usa. */
+function traduzErro(msg){
+  var m = String(msg || '');
+  if (/Invalid login credentials/i.test(m)) return 'E-mail ou senha incorretos.';
+  if (/Email not confirmed/i.test(m))       return 'Confirme seu e-mail antes de entrar (veja sua caixa de entrada).';
+  if (/User already registered/i.test(m))   return 'Já existe uma conta com esse e-mail.';
+  if (/Password should be at least/i.test(m)) return 'A senha precisa ter pelo menos 6 caracteres.';
+  if (/row-level security|violates row-level/i.test(m))
+    return 'Você não tem permissão para esta ação.';
+  if (/duplicate key/i.test(m))             return 'Esse registro já existe.';
+  return m;
+}
+
+/* Converte "/eventos/12/presencas" em ['eventos','12','presencas'] */
+function partesDaRota(path){ return path.split('?')[0].split('/').filter(Boolean); }
+
+async function supabaseFetch(path, metodo, corpo){
+  var c = clienteSupabase();
+  if (!c) throw new Error('Biblioteca do Supabase não carregou. Verifique sua conexão.');
+  var p = partesDaRota(path);
+  var r;
+
+  /* ---- perfil e permissões ---- */
+  if (path === '/auth/me'){
+    var u = erroSb(await c.auth.getUser());
+    if (!u || !u.user) throw new Error('Sessão expirada.');
+    return await montarPerfil(c, u.user);
+  }
+
+  /* ---- dashboard ---- */
+  if (path === '/dashboard'){
+    var d = erroSb(await c.from('vw_dashboard').select('*').single());
+    var aniv = [], coms = [];
+    try { aniv = erroSb(await c.from('vw_aniversariantes_mes').select('*')) || []; } catch(e){}
+    try {
+      coms = erroSb(await c.from('comunicados')
+        .select('id,titulo,criado_em,autor:autor_id(nome_completo)')
+        .order('fixado', {ascending:false}).order('criado_em', {ascending:false}).limit(3)) || [];
+    } catch(e){}
+    return {
+      total_integrantes: d.total_integrantes,
+      percentual_mensalidades_pagas: Number(d.percentual_pagas),
+      saldo_caixa: Number(d.saldo_caixa),
+      proximo_evento_nome: d.proximo_evento_nome,
+      proximo_evento_data: d.proximo_evento_data,
+      aniversariantes_mes: aniv.map(function(a){
+        return {id:a.id, nome:a.nome_completo, apelido:a.nome_no_colete, data_nascimento:a.data_nascimento};
+      }),
+      ultimos_comunicados: coms.map(function(x){
+        return {id:x.id, titulo:x.titulo, data:x.criado_em,
+                autor_nome: x.autor ? x.autor.nome_completo : null};
+      })
+    };
+  }
+
+  /* ---- integrantes ---- */
+  if (p[0] === 'integrantes'){
+    if (p.length === 1 && metodo === 'GET'){
+      var lista = erroSb(await c.from('integrantes').select('*').order('nome_completo'));
+      /* Endereço e CNH vêm de tabela protegida: quem não tem permissão
+         simplesmente recebe menos linhas, sem erro. */
+      var sens = [];
+      try { sens = erroSb(await c.from('integrantes_dados_sensiveis').select('*')) || []; } catch(e){}
+      var porId = {};
+      sens.forEach(function(x){ porId[x.integrante_id] = x; });
+      return lista.map(function(i){
+        var extra = porId[i.id] || {};
+        i.endereco = extra.endereco || null;
+        i.habilitacao_numero = extra.habilitacao_numero || null;
+        return i;
+      });
+    }
+    if (p.length === 1 && metodo === 'POST') return await gravarIntegrante(c, null, corpo);
+    if (p.length === 2 && metodo === 'PUT')  return await gravarIntegrante(c, p[1], corpo);
+    if (p.length === 2 && metodo === 'DELETE'){
+      erroSb(await c.from('integrantes').delete().eq('id', p[1]));
+      return {detail:'Integrante excluído'};
+    }
+  }
+
+  /* ---- mensalidades ---- */
+  if (p[0] === 'mensalidades'){
+    if (p.length === 1 && metodo === 'GET'){
+      r = erroSb(await c.from('mensalidades')
+        .select('*, integrante:integrante_id(nome_completo,nome_no_colete)')
+        .order('vencimento', {ascending:false}));
+      return r.map(function(m){
+        m.integrante_nome = m.integrante ? m.integrante.nome_completo : null;
+        m.valor = Number(m.valor);
+        return m;
+      });
+    }
+    if (p.length === 1 && metodo === 'POST')
+      return erroSb(await c.from('mensalidades').insert(corpo).select().single());
+    if (p.length === 3 && p[2] === 'pagar'){
+      return erroSb(await c.from('mensalidades').update({
+        pago: true,
+        data_pagamento: (corpo && corpo.data_pagamento) || new Date().toISOString().slice(0,10),
+        forma_pagamento: (corpo && corpo.forma_pagamento) || 'Pix'
+      }).eq('id', p[1]).select().single());
+    }
+  }
+
+  /* ---- eventos e presenças ---- */
+  if (p[0] === 'eventos'){
+    if (p.length === 1 && metodo === 'GET'){
+      var evs = erroSb(await c.from('eventos').select('*').order('data'));
+      var pres = [];
+      try { pres = erroSb(await c.from('presencas').select('evento_id,confirmacao')) || []; } catch(e){}
+      return evs.map(function(e){
+        e.total_confirmados = pres.filter(function(x){
+          return x.evento_id === e.id && x.confirmacao === 'Confirmado';
+        }).length;
+        return e;
+      });
+    }
+    if (p.length === 1 && metodo === 'POST'){
+      var meu = await meuIntegranteId(c);
+      var novo = Object.assign({}, corpo);
+      delete novo.criador_id;
+      novo.criador_id = meu;
+      return erroSb(await c.from('eventos').insert(novo).select().single());
+    }
+    if (p.length === 2 && metodo === 'PUT')
+      return erroSb(await c.from('eventos').update(corpo).eq('id', p[1]).select().single());
+    if (p.length === 2 && metodo === 'DELETE'){
+      erroSb(await c.from('eventos').delete().eq('id', p[1]));
+      return {detail:'Evento excluído'};
+    }
+    if (p.length === 3 && p[2] === 'presencas'){
+      r = erroSb(await c.from('presencas')
+        .select('*, integrante:integrante_id(nome_completo,nome_no_colete)')
+        .eq('evento_id', p[1]));
+      return r.map(function(x){
+        x.integrante_nome = x.integrante ? x.integrante.nome_completo : null;
+        return x;
+      });
+    }
+    if (p.length === 3 && p[2] === 'presenca'){
+      var eu = await meuIntegranteId(c);
+      if (!eu) throw new Error('Sua conta ainda não está ligada a um integrante.');
+      return erroSb(await c.from('presencas').upsert({
+        evento_id: Number(p[1]), integrante_id: eu, confirmacao: corpo.confirmacao
+      }, {onConflict:'evento_id,integrante_id'}).select().single());
+    }
+  }
+
+  /* ---- comunicados ---- */
+  if (p[0] === 'comunicados'){
+    if (p.length === 1 && metodo === 'GET'){
+      r = erroSb(await c.from('comunicados')
+        .select('*, autor:autor_id(nome_completo)')
+        .order('fixado', {ascending:false}).order('criado_em', {ascending:false}));
+      return r.map(function(x){
+        x.autor_nome = x.autor ? x.autor.nome_completo : null;
+        x.data = x.criado_em;
+        return x;
+      });
+    }
+    if (p.length === 1 && metodo === 'POST'){
+      var autor = await meuIntegranteId(c);
+      return erroSb(await c.from('comunicados').insert({
+        titulo: corpo.titulo, mensagem: corpo.mensagem,
+        fixado: !!corpo.fixado, autor_id: autor
+      }).select().single());
+    }
+    if (p.length === 2 && metodo === 'DELETE'){
+      erroSb(await c.from('comunicados').delete().eq('id', p[1]));
+      return {detail:'Comunicado excluído'};
+    }
+  }
+
+  /* ---- documentos ---- */
+  if (p[0] === 'documentos'){
+    if (p.length === 1 && metodo === 'GET'){
+      r = erroSb(await c.from('documentos')
+        .select('*, enviado:enviado_por(nome_completo)').order('criado_em', {ascending:false}));
+      return r.map(function(x){
+        x.integrante_nome = x.enviado ? x.enviado.nome_completo : null;
+        x.data_upload = x.criado_em;
+        return x;
+      });
+    }
+    if (p.length === 2 && metodo === 'DELETE'){
+      var doc = erroSb(await c.from('documentos').select('storage_path').eq('id', p[1]).single());
+      if (doc && doc.storage_path) await c.storage.from('documentos').remove([doc.storage_path]);
+      erroSb(await c.from('documentos').delete().eq('id', p[1]));
+      return {detail:'Documento excluído'};
+    }
+  }
+
+  /* ---- solicitações de ingresso ---- */
+  if (p[0] === 'solicitacoes'){
+    if (p.length === 1 && metodo === 'POST')
+      return erroSb(await c.from('solicitacoes_cadastro').insert(corpo).select().single());
+    if (p.length === 1 && metodo === 'GET'){
+      r = erroSb(await c.from('solicitacoes_cadastro').select('*').order('criado_em', {ascending:false}));
+      return r.map(function(x){
+        x.nome = x.nome_completo;
+        x.apelido_desejado = x.nome_no_colete;
+        x.data_solicitacao = x.criado_em;
+        return x;
+      });
+    }
+    if (p.length === 3 && p[2] === 'aprovar')  return await aprovarSolicitacaoSb(c, p[1]);
+    if (p.length === 3 && p[2] === 'recusar'){
+      var quem = await meuIntegranteId(c);
+      erroSb(await c.from('solicitacoes_cadastro').update({
+        status:'Recusada', analisado_por: quem, data_analise: new Date().toISOString()
+      }).eq('id', p[1]));
+      return {status:'Recusada'};
+    }
+  }
+
+  /* ---- usuários, acessos e permissões ---- */
+  if (p[0] === 'usuarios'){
+    if (p.length === 1 && metodo === 'GET'){
+      r = erroSb(await c.from('perfis')
+        .select('*, integrante:integrante_id(nome_completo,nome_no_colete,email)'));
+      return r.map(function(x){
+        return {
+          id: x.user_id,
+          login: x.integrante && x.integrante.email ? x.integrante.email : '(sem e-mail)',
+          cargo: x.cargo,
+          ativo: x.ativo,
+          integrante_id: x.integrante_id,
+          integrante_nome: x.integrante ? x.integrante.nome_completo : '(conta sem integrante)',
+          permissoes_customizadas: x.permissoes_customizadas || {},
+          permissoes_efetivas: permissoesEfetivas(x.cargo, x.permissoes_customizadas || {})
+        };
+      });
+    }
+    if (p.length === 2 && metodo === 'PATCH')
+      return erroSb(await c.from('perfis').update(corpo).eq('user_id', p[1]).select().single());
+    if (p.length === 3 && p[2] === 'permissoes')
+      return erroSb(await c.from('perfis')
+        .update({permissoes_customizadas: corpo.permissoes})
+        .eq('user_id', p[1]).select().single());
+    if (p.length === 3 && p[2] === 'resetar-senha'){
+      /* Com a chave pública não é possível trocar a senha de outra pessoa —
+         e isso é bom. O caminho seguro é o Supabase enviar um link por e-mail. */
+      var alvo = erroSb(await c.from('perfis')
+        .select('integrante:integrante_id(email)').eq('user_id', p[1]).single());
+      var mail = alvo && alvo.integrante ? alvo.integrante.email : null;
+      if (!mail) throw new Error('Esta pessoa não tem e-mail cadastrado na ficha.');
+      erroSb(await c.auth.resetPasswordForEmail(mail, {redirectTo: window.location.href}));
+      return {login: mail, senha_temporaria: null, email_enviado: true};
+    }
+  }
+
+  if (path === '/permissoes/catalogo'){
+    var cat = erroSb(await c.from('permissoes_catalogo').select('*').order('ordem'));
+    var cargos = erroSb(await c.from('cargos').select('*').order('ordem'));
+    var padroes = {};
+    cargos.forEach(function(x){ padroes[x.nome] = x.permissoes_padrao; });
+    return {permissoes: cat, cargos: cargos.map(function(x){return x.nome;}), padroes_por_cargo: padroes};
+  }
+
+  throw new Error('Rota não mapeada para o Supabase: ' + metodo + ' ' + path);
+}
+
+async function montarPerfil(c, usuario){
+  var perfil = erroSb(await c.from('perfis')
+    .select('*, integrante:integrante_id(nome_completo,nome_no_colete)')
+    .eq('user_id', usuario.id).maybeSingle());
+  if (!perfil) throw new Error('Sua conta ainda não foi liberada pela diretoria.');
+  if (!perfil.ativo) throw new Error('Seu acesso está bloqueado. Fale com a diretoria.');
+  return {
+    id: usuario.id,
+    login: usuario.email,
+    nome: perfil.integrante ? perfil.integrante.nome_completo : usuario.email,
+    cargo: perfil.cargo,
+    permissoes: permissoesEfetivas(perfil.cargo, perfil.permissoes_customizadas || {})
+  };
+}
+
+async function meuIntegranteId(c){
+  var u = erroSb(await c.auth.getUser());
+  if (!u || !u.user) return null;
+  var perfil = erroSb(await c.from('perfis').select('integrante_id').eq('user_id', u.user.id).maybeSingle());
+  return perfil ? perfil.integrante_id : null;
+}
+
+/* Grava o integrante e, separadamente, os dados protegidos (endereço e CNH). */
+async function gravarIntegrante(c, id, dados){
+  var d = Object.assign({}, dados);
+  var endereco = d.endereco; delete d.endereco;
+  var cnh = d.habilitacao_numero; delete d.habilitacao_numero;
+  Object.keys(d).forEach(function(k){ if (d[k] === '') d[k] = null; });
+
+  var reg;
+  if (id) reg = erroSb(await c.from('integrantes').update(d).eq('id', id).select().single());
+  else    reg = erroSb(await c.from('integrantes').insert(d).select().single());
+
+  if (endereco !== undefined || cnh !== undefined){
+    try{
+      erroSb(await c.from('integrantes_dados_sensiveis').upsert({
+        integrante_id: reg.id,
+        endereco: endereco || null,
+        habilitacao_numero: cnh || null
+      }, {onConflict:'integrante_id'}));
+    }catch(e){ /* sem permissão para dados sensíveis: o resto já foi salvo */ }
+  }
+  return reg;
+}
+
+/* Aprovar = virar integrante. O acesso ao portal a pessoa cria depois, sozinha,
+   com o e-mail da ficha (o banco liga automaticamente). */
+async function aprovarSolicitacaoSb(c, id){
+  var s = erroSb(await c.from('solicitacoes_cadastro').select('*').eq('id', id).single());
+  if (s.status !== 'Pendente') throw new Error('Esta solicitação já foi analisada.');
+
+  var novo = erroSb(await c.from('integrantes').insert({
+    nome_completo: s.nome_completo, email: s.email, telefone: s.telefone,
+    nome_no_colete: s.nome_no_colete, cargo: 'Próspero', status: 'Ativo',
+    padrinho_nome: s.padrinho_nome, tipo_sanguineo: s.tipo_sanguineo,
+    data_nascimento: s.data_nascimento, veiculo_principal: s.veiculo_principal,
+    placa_veiculo: s.placa_veiculo,
+    entrada_mes_ano: new Date().toISOString().slice(0,7).split('-').reverse().join('/')
+  }).select().single());
+
+  if (s.endereco || s.habilitacao_numero){
+    try{
+      erroSb(await c.from('integrantes_dados_sensiveis').insert({
+        integrante_id: novo.id, endereco: s.endereco, habilitacao_numero: s.habilitacao_numero
+      }));
+    }catch(e){}
+  }
+
+  var quem = await meuIntegranteId(c);
+  erroSb(await c.from('solicitacoes_cadastro').update({
+    status:'Aprovada', analisado_por: quem, data_analise: new Date().toISOString(),
+    integrante_criado_id: novo.id
+  }).eq('id', id));
+
+  return {integrante_id: novo.id, login_gerado: s.email || '(sem e-mail)', senha_temporaria: null, criar_conta: true};
 }
 
 /* Detecta se a "API" é um Web App do Google Apps Script (planilha como banco).
@@ -561,6 +954,10 @@ function ehAppsScript(url){
 async function apiFetch(path, options){
   options = options || {};
   var metodo = options.method || 'GET';
+
+  if(usandoSupabase()){
+    return await supabaseFetch(path, metodo, options.body ? JSON.parse(options.body) : {});
+  }
 
   if(ehAppsScript(state.apiBase)){
     var corpo = options.body ? JSON.parse(options.body) : {};
@@ -593,7 +990,25 @@ async function handleLogin(ev){
   var login = document.getElementById('in-login').value.trim();
   var senha = document.getElementById('in-senha').value;
   var erroEl = document.getElementById('erro-login');
-  erroEl.textContent = '';
+  erroEl.style.color = ''; erroEl.textContent = '';
+
+  if(usandoSupabase()){
+    var c = clienteSupabase();
+    if(!c){ erroEl.textContent = 'Não foi possível carregar a conexão com o banco. Verifique sua internet.'; return false; }
+    try{
+      var resp = await c.auth.signInWithPassword({email: login, password: senha});
+      if(resp.error) throw new Error(traduzErro(resp.error.message));
+      var perfil = await apiFetch('/auth/me');
+      state.token='supabase'; state.cargo=perfil.cargo; state.nome=perfil.nome;
+      state.permissoes = perfil.permissoes || [];
+      state.screen='app'; state.view='dashboard';
+      render();
+    }catch(e){
+      erroEl.textContent = e.message;
+      try{ await clienteSupabase().auth.signOut(); }catch(x){}
+    }
+    return false;
+  }
 
   if(state.apiBase){
     try{
@@ -619,8 +1034,40 @@ async function handleLogin(ev){
   return false;
 }
 
-function handleLogout(){
-  state.token=null; state.cargo=null; state.nome=null; state.screen='publico';
+/* Primeiro acesso: a pessoa cria a conta com o e-mail da ficha e o banco liga
+   automaticamente ao integrante correspondente, já com o cargo certo. */
+async function criarConta(){
+  var email = document.getElementById('in-login').value.trim();
+  var senha = document.getElementById('in-senha').value;
+  var erroEl = document.getElementById('erro-login');
+  if(!email || senha.length < 6){
+    erroEl.style.color = '';
+    erroEl.textContent = 'Informe seu e-mail e uma senha de pelo menos 6 caracteres.';
+    return;
+  }
+  try{
+    var r = await clienteSupabase().auth.signUp({email: email, password: senha});
+    if(r.error) throw new Error(traduzErro(r.error.message));
+    erroEl.style.color = 'var(--gold)';
+    erroEl.textContent = 'Conta criada! Confirme pelo link enviado ao seu e-mail e depois entre.';
+  }catch(e){ erroEl.style.color=''; erroEl.textContent = e.message; }
+}
+
+async function esqueciSenha(){
+  var email = document.getElementById('in-login').value.trim();
+  var erroEl = document.getElementById('erro-login');
+  if(!email){ erroEl.style.color=''; erroEl.textContent = 'Escreva seu e-mail no campo acima primeiro.'; return; }
+  try{
+    var r = await clienteSupabase().auth.resetPasswordForEmail(email, {redirectTo: window.location.href});
+    if(r.error) throw new Error(traduzErro(r.error.message));
+    erroEl.style.color = 'var(--gold)';
+    erroEl.textContent = 'Enviamos um link de redefinição para ' + email + '.';
+  }catch(e){ erroEl.style.color=''; erroEl.textContent = e.message; }
+}
+
+async function handleLogout(){
+  if(usandoSupabase()){ try{ await clienteSupabase().auth.signOut(); }catch(e){} }
+  state.token=null; state.cargo=null; state.nome=null; state.permissoes=[]; state.screen='publico';
   render();
 }
 
@@ -710,9 +1157,10 @@ function contadorSolicitacoesPendentesBadge(){
 }
 
 function demoBanner(){
+  if(usandoSupabase()) return '';   // conectado ao banco: nada a configurar
   var status = state.apiBase
     ? ('Conectado a: '+state.apiBase)
-    : 'Modo demonstração — as alterações valem só nesta sessão e se perdem ao recarregar a página. Conecte a API para salvar de verdade.';
+    : 'Modo demonstração — as alterações valem só nesta sessão e se perdem ao recarregar a página.';
   return '<div class="demo-banner">' +
     '<span>'+status+'</span>' +
     '<div class="grp">' +
@@ -731,7 +1179,7 @@ async function renderDashboard(body){
   var aniversariantes = demoAniversariantes;
   var comunicados = demoComunicados.slice(0,3);
 
-  if(state.apiBase){
+  if(temBackend()){
     try{
       d = await apiFetch('/dashboard');
       aniversariantes = d.aniversariantes_mes || [];
@@ -777,19 +1225,24 @@ async function renderDashboard(body){
 async function renderMembros(body){
   body.innerHTML =
     '<div class="painel-titulo">Integrantes</div>' +
-    '<div class="painel-sub">Cadastro de membros da irmandade</div>' +
+    '<div class="painel-sub">Cadastro conforme a ficha oficial do clube</div>' +
     '<div class="toolbar">' +
-      '<input type="text" id="busca-membros" placeholder="Buscar por nome ou apelido..." oninput="filtrarMembros(this.value)">' +
-      (podeFazer('editar_integrantes') ? '<button class="btn-primario" onclick="abrirModalNovoIntegrante()">+ Novo integrante</button>' : '') +
+      '<input type="text" id="busca-membros" placeholder="Buscar por nome ou colete..." oninput="filtrarMembros(this.value)">' +
+      (podeFazer('editar_integrantes') ? '<button class="btn-primario" onclick="abrirModalEditarIntegrante(null)">+ Novo integrante</button>' : '') +
     '</div>' +
+    '<div id="aviso-membros"></div>' +
     '<div class="table-wrap"><table>' +
-      '<thead><tr><th>Nome</th><th>Cargo</th><th>Status</th><th>Moto</th><th>Placa</th><th>Contato</th><th></th></tr></thead>' +
+      '<thead><tr><th>Nome</th><th>Colete</th><th>Função</th><th>Status</th>' +
+      '<th>Veículo</th><th>Placa</th><th>Telefone</th><th>Padrinho</th><th></th></tr></thead>' +
       '<tbody id="tbody-membros"></tbody>' +
     '</table></div>';
 
-  if(state.apiBase){
+  if(temBackend()){
     try{ integrantesAtuais = await apiFetch('/integrantes'); }
-    catch(e){ /* sem conexão: segue com os dados de demonstração */ }
+    catch(e){
+      var av = document.getElementById('aviso-membros');
+      if(av) av.innerHTML = '<div class="demo-banner" style="margin-bottom:14px;"><span>Não foi possível carregar: '+e.message+'</span></div>';
+    }
   } else {
     integrantesAtuais = null;
   }
@@ -800,87 +1253,122 @@ function filtrarMembros(v){
   state.membrosFiltro = v || '';
   var termo = state.membrosFiltro.toLowerCase();
   var lista = listaIntegrantes().filter(function(i){
-    return i.nome.toLowerCase().indexOf(termo)>-1 || (i.apelido||'').toLowerCase().indexOf(termo)>-1;
+    return (i.nome_completo||'').toLowerCase().indexOf(termo)>-1 ||
+           (i.nome_no_colete||'').toLowerCase().indexOf(termo)>-1;
   });
   var tbody = document.getElementById('tbody-membros');
   if(!tbody) return;
   if(lista.length===0){
-    tbody.innerHTML = '<tr><td colspan="7" class="vazio">Nenhum integrante encontrado.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" class="vazio">Nenhum integrante encontrado.</td></tr>';
     return;
   }
   tbody.innerHTML = lista.map(function(i){
     return '<tr>' +
-      '<td>'+i.nome+' <span class="mono" style="color:var(--muted)">"'+(i.apelido||'')+'"</span></td>' +
-      '<td>'+i.cargo+'</td>' +
-      '<td><span class="status-pill '+(i.status==='Ativo'?'status-ativo':'status-inativo')+'">'+i.status+'</span></td>' +
-      '<td>'+(i.moto_modelo||'—')+'</td>' +
-      '<td class="mono">'+(i.moto_placa||'—')+'</td>' +
+      '<td>'+(i.nome_completo||'')+'</td>' +
+      '<td class="mono" style="color:var(--gold);">'+(i.nome_no_colete||'—')+'</td>' +
+      '<td>'+(i.cargo||'')+'</td>' +
+      '<td><span class="status-pill '+(i.status==='Ativo'?'status-ativo':'status-inativo')+'">'+(i.status||'')+'</span></td>' +
+      '<td>'+(i.veiculo_principal||'—')+'</td>' +
+      '<td class="mono">'+(i.placa_veiculo||'—')+'</td>' +
       '<td>'+(i.telefone||'—')+'</td>' +
+      '<td>'+(i.padrinho_nome||'—')+'</td>' +
       '<td>'+(podeFazer('editar_integrantes') ? '<button class="acao-link" onclick="abrirModalEditarIntegrante('+i.id+')">Editar</button>' : '')+'</td>' +
     '</tr>';
   }).join('');
 }
 
+/* id nulo = cadastro novo */
 function abrirModalEditarIntegrante(id){
-  var i = listaIntegrantes().find(function(x){return x.id===id;});
-  if(!i) return;
+  var i = id ? (listaIntegrantes().find(function(x){return x.id===id;}) || {}) : {};
+  var esc = function(v){ return String(v==null?'':v).replace(/"/g,'&quot;'); };
   var opcoesCargo = CARGOS.map(function(c){
     return '<option'+(i.cargo===c?' selected':'')+'>'+c+'</option>';
   }).join('');
+  var podeVerSensiveis = podeFazer('ver_dados_sensiveis');
 
   document.getElementById('modal-root').innerHTML =
     '<div class="modal-overlay" onclick="if(event.target===this) fecharModal()">' +
       '<div class="modal">' +
-        '<h3>Editar integrante</h3>' +
+        '<h3>'+(id?'Editar integrante':'Novo integrante')+'</h3>' +
+        '<div class="campo"><label>Nome completo *</label><input type="text" id="ed-nome" value="'+esc(i.nome_completo)+'"></div>' +
         '<div class="grid-2">' +
-          '<div class="campo"><label>Nome</label><input type="text" id="ed-nome" value="'+(i.nome||'')+'"></div>' +
-          '<div class="campo"><label>Apelido</label><input type="text" id="ed-apelido" value="'+(i.apelido||'')+'"></div>' +
+          '<div class="campo"><label>Nome no colete</label><input type="text" id="ed-colete" value="'+esc(i.nome_no_colete)+'"></div>' +
+          '<div class="campo"><label>Função no Imaculados</label><select id="ed-cargo">'+opcoesCargo+'</select></div>' +
         '</div>' +
         '<div class="grid-2">' +
-          '<div class="campo"><label>Cargo</label><select id="ed-cargo">'+opcoesCargo+'</select></div>' +
-          '<div class="campo"><label>Status</label><select id="ed-status">' +
-            '<option'+(i.status==='Ativo'?' selected':'')+'>Ativo</option>' +
-            '<option'+(i.status==='Inativo'?' selected':'')+'>Inativo</option>' +
+          '<div class="campo"><label>Telefone</label><input type="text" id="ed-telefone" value="'+esc(i.telefone)+'"></div>' +
+          '<div class="campo"><label>E-mail</label><input type="email" id="ed-email" value="'+esc(i.email)+'"></div>' +
+        '</div>' +
+        '<div class="grid-2">' +
+          '<div class="campo"><label>Data de nascimento</label><input type="date" id="ed-nascimento" value="'+esc(i.data_nascimento)+'"></div>' +
+          '<div class="campo"><label>Entrada no M.C. (mês/ano)</label><input type="text" id="ed-entrada" placeholder="03/2019" value="'+esc(i.entrada_mes_ano)+'"></div>' +
+        '</div>' +
+        '<div class="grid-2">' +
+          '<div class="campo"><label>Padrinho</label><input type="text" id="ed-padrinho" value="'+esc(i.padrinho_nome)+'"></div>' +
+          '<div class="campo"><label>Tipo sanguíneo</label><input type="text" id="ed-sangue" placeholder="O+" value="'+esc(i.tipo_sanguineo)+'"></div>' +
+        '</div>' +
+        '<div class="grid-2">' +
+          '<div class="campo"><label>Principal veículo</label><select id="ed-veiculo">' +
+            '<option value="">—</option>' +
+            '<option'+(i.veiculo_principal==='Moto'?' selected':'')+'>Moto</option>' +
+            '<option'+(i.veiculo_principal==='Carro'?' selected':'')+'>Carro</option>' +
           '</select></div>' +
+          '<div class="campo"><label>Placa</label><input type="text" id="ed-placa" value="'+esc(i.placa_veiculo)+'"></div>' +
         '</div>' +
-        '<div class="grid-2">' +
-          '<div class="campo"><label>Moto (modelo)</label><input type="text" id="ed-moto" value="'+(i.moto_modelo||'')+'"></div>' +
-          '<div class="campo"><label>Placa</label><input type="text" id="ed-placa" value="'+(i.moto_placa||'')+'"></div>' +
-        '</div>' +
-        '<div class="grid-2">' +
-          '<div class="campo"><label>Telefone</label><input type="text" id="ed-telefone" value="'+(i.telefone||'')+'"></div>' +
-          '<div class="campo"><label>E-mail</label><input type="text" id="ed-email" value="'+(i.email||'')+'"></div>' +
-        '</div>' +
-        '<div style="font-size:11.5px;color:var(--muted);border-top:1px solid var(--border);padding-top:12px;margin-top:6px;line-height:1.6;">' +
-          'O cargo define o nível de acesso padrão. Para liberar ou bloquear itens específicos desta pessoa, use a aba <b style="color:var(--gold);">Acessos</b>.' +
-        '</div>' +
+        '<div class="campo"><label>Status</label><select id="ed-status">' +
+          '<option'+(i.status!=='Inativo'?' selected':'')+'>Ativo</option>' +
+          '<option'+(i.status==='Inativo'?' selected':'')+'>Inativo</option>' +
+        '</select></div>' +
+        (podeVerSensiveis ?
+          '<div style="border-top:1px solid var(--border);margin:14px 0 10px;padding-top:12px;">' +
+            '<div style="font-size:10.5px;color:var(--gold);letter-spacing:1px;text-transform:uppercase;margin-bottom:8px;">🔒 Dados restritos</div>' +
+            '<div class="campo"><label>Endereço</label><input type="text" id="ed-endereco" value="'+esc(i.endereco)+'"></div>' +
+            '<div class="campo"><label>Nº da habilitação</label><input type="text" id="ed-cnh" value="'+esc(i.habilitacao_numero)+'"></div>' +
+          '</div>'
+          : '<div style="font-size:11.5px;color:var(--muted-2);border-top:1px solid var(--border);margin-top:12px;padding-top:10px;">🔒 Endereço e CNH são visíveis apenas para quem tem essa permissão.</div>') +
         '<div class="modal-acoes">' +
           '<button class="btn-secundario" onclick="fecharModal()">Cancelar</button>' +
-          '<button class="btn-entrar" style="width:auto;padding:9px 20px;" onclick="salvarEdicaoIntegrante('+id+')">Salvar</button>' +
+          '<button class="btn-entrar" style="width:auto;padding:9px 20px;" onclick="salvarEdicaoIntegrante('+(id||'null')+')">Salvar</button>' +
         '</div>' +
       '</div>' +
     '</div>';
 }
 
 async function salvarEdicaoIntegrante(id){
+  var val = function(x){ var el=document.getElementById(x); return el ? el.value.trim() : undefined; };
   var dados = {
-    nome: document.getElementById('ed-nome').value.trim(),
-    apelido: document.getElementById('ed-apelido').value.trim(),
-    cargo: document.getElementById('ed-cargo').value,
-    status: document.getElementById('ed-status').value,
-    moto_modelo: document.getElementById('ed-moto').value.trim(),
-    moto_placa: document.getElementById('ed-placa').value.trim(),
-    telefone: document.getElementById('ed-telefone').value.trim(),
-    email: document.getElementById('ed-email').value.trim()
+    nome_completo: val('ed-nome'),
+    nome_no_colete: val('ed-colete'),
+    cargo: val('ed-cargo'),
+    telefone: val('ed-telefone'),
+    email: val('ed-email'),
+    data_nascimento: val('ed-nascimento') || null,
+    entrada_mes_ano: val('ed-entrada'),
+    padrinho_nome: val('ed-padrinho'),
+    tipo_sanguineo: val('ed-sangue'),
+    veiculo_principal: val('ed-veiculo') || null,
+    placa_veiculo: (val('ed-placa')||'').toUpperCase(),
+    status: val('ed-status')
   };
-  if(!dados.nome){ alert('O nome não pode ficar vazio.'); return; }
+  if(document.getElementById('ed-endereco')){
+    dados.endereco = val('ed-endereco');
+    dados.habilitacao_numero = val('ed-cnh');
+  }
+  if(!dados.nome_completo){ alert('O nome completo é obrigatório.'); return; }
 
-  if(state.apiBase){
-    try{ await apiFetch('/integrantes/'+id, {method:'PUT', body:JSON.stringify(dados)}); }
-    catch(e){ alert('Erro ao salvar na API: '+e.message); return; }
+  if(temBackend()){
+    try{
+      if(id) await apiFetch('/integrantes/'+id, {method:'PUT', body:JSON.stringify(dados)});
+      else   await apiFetch('/integrantes',      {method:'POST', body:JSON.stringify(dados)});
+    }catch(e){ alert('Erro ao salvar: '+e.message); return; }
   } else {
-    var alvo = demoIntegrantes.find(function(x){return x.id===id;});
-    if(alvo) Object.keys(dados).forEach(function(k){ alvo[k] = dados[k]; });
+    if(id){
+      var alvo = demoIntegrantes.find(function(x){return x.id===id;});
+      if(alvo) Object.keys(dados).forEach(function(k){ alvo[k] = dados[k]; });
+    } else {
+      dados.id = Math.max.apply(null, demoIntegrantes.map(function(x){return x.id;}).concat([0])) + 1;
+      demoIntegrantes.push(dados);
+    }
   }
   fecharModal();
   renderMembros(document.getElementById('view-body'));
@@ -927,7 +1415,7 @@ async function salvarNovoIntegrante(){
   };
   if(!novo.nome){ alert('Informe o nome do integrante.'); return; }
 
-  if(state.apiBase){
+  if(temBackend()){
     try{ await apiFetch('/integrantes', {method:'POST', body:JSON.stringify(novo)}); }
     catch(e){ alert('Erro ao salvar na API: '+e.message); return; }
   } else {
@@ -957,7 +1445,7 @@ async function renderMensalidades(body){
       '<tbody id="tbody-mensalidades"></tbody>' +
     '</table></div>';
 
-  if(state.apiBase){
+  if(temBackend()){
     try{ mensalidadesAtuais = await apiFetch('/mensalidades'); }
     catch(e){ /* sem conexão: segue com os dados de demonstração */ }
   } else {
@@ -991,7 +1479,7 @@ function desenharMensalidades(){
 }
 
 async function marcarPaga(id){
-  if(state.apiBase){
+  if(temBackend()){
     try{
       await apiFetch('/mensalidades/'+id+'/pagar', {method:'PATCH', body:JSON.stringify({forma_pagamento:'Pix'})});
     }catch(e){ alert('Erro ao registrar pagamento: '+e.message); return; }
@@ -1018,7 +1506,7 @@ async function renderEventos(body){
     '<div class="cards-grid" id="grid-eventos"></div>';
 
   var lista = demoEventos;
-  if(state.apiBase){
+  if(temBackend()){
     try{ lista = await apiFetch('/eventos'); }catch(e){ /* mantém mock em caso de falha */ }
   }
   lista = lista.slice().sort(function(a,b){ return a.data < b.data ? -1 : 1; });
@@ -1055,7 +1543,7 @@ async function renderEventos(body){
 }
 
 async function responderPresenca(eventoId, resposta){
-  if(state.apiBase){
+  if(temBackend()){
     try{ await apiFetch('/eventos/'+eventoId+'/presenca', {method:'POST', body:JSON.stringify({confirmacao:resposta})}); }
     catch(e){ alert('Erro ao registrar presença: '+e.message); return; }
   }
@@ -1069,7 +1557,7 @@ async function responderPresenca(eventoId, resposta){
 async function verPresencas(eventoId){
   var evento = demoEventos.find(function(e){return e.id===eventoId;});
   var presencasEv = demoPresencas[eventoId] || [];
-  if(state.apiBase){
+  if(temBackend()){
     try{ presencasEv = await apiFetch('/eventos/'+eventoId+'/presencas'); }catch(e){}
   }
   var linhas = presencasEv.map(function(p){
@@ -1121,7 +1609,7 @@ async function salvarNovoEvento(){
   };
   if(!novo.nome || !novo.data){ alert('Informe ao menos o nome e a data do evento.'); return; }
 
-  if(state.apiBase){
+  if(temBackend()){
     try{ await apiFetch('/eventos', {method:'POST', body:JSON.stringify(novo)}); }
     catch(e){ alert('Erro ao salvar na API: '+e.message); return; }
   } else {
@@ -1143,7 +1631,7 @@ async function renderComunicados(body){
     '<div id="lista-comunicados" style="display:flex;flex-direction:column;gap:12px;"></div>';
 
   var lista = demoComunicados;
-  if(state.apiBase){
+  if(temBackend()){
     try{ lista = await apiFetch('/comunicados'); }catch(e){ /* mantém mock em caso de falha */ }
   }
   lista = lista.slice().sort(function(a,b){
@@ -1195,7 +1683,7 @@ async function salvarNovoComunicado(){
   };
   if(!novo.titulo || !novo.mensagem){ alert('Preencha o título e a mensagem.'); return; }
 
-  if(state.apiBase){
+  if(temBackend()){
     try{ await apiFetch('/comunicados', {method:'POST', body:JSON.stringify(novo)}); }
     catch(e){ alert('Erro ao publicar na API: '+e.message); return; }
   } else {
@@ -1210,7 +1698,7 @@ async function salvarNovoComunicado(){
 
 async function excluirComunicado(id){
   if(!confirm('Excluir este comunicado?')) return;
-  if(state.apiBase){
+  if(temBackend()){
     try{ await apiFetch('/comunicados/'+id, {method:'DELETE'}); }
     catch(e){ alert('Erro ao excluir na API: '+e.message); return; }
   } else {
@@ -1332,7 +1820,7 @@ async function salvarNovoDocumento(){
 
   if(!titulo || !arquivo){ alert('Informe o título e selecione um arquivo.'); return; }
 
-  if(state.apiBase){
+  if(temBackend()){
     try{
       var formData = new FormData();
       formData.append('titulo', titulo);
@@ -1365,7 +1853,7 @@ async function salvarNovoDocumento(){
 
 async function excluirDocumento(id){
   if(!confirm('Excluir este documento?')) return;
-  if(state.apiBase){
+  if(temBackend()){
     try{ await apiFetch('/documentos/'+id, {method:'DELETE'}); }
     catch(e){ alert('Erro ao excluir na API: '+e.message); return; }
   } else {
@@ -1379,33 +1867,56 @@ function renderCadastroForm(){
   document.getElementById('cadastro-conteudo').innerHTML =
     '<h2>Quero ingressar no M.C.</h2>' +
     '<div class="sub">Preencha seus dados. A diretoria vai analisar sua solicitação.</div>' +
-    '<div class="campo"><label>Nome completo</label><input type="text" id="cad-nome"></div>' +
+    '<div class="campo"><label>Nome completo *</label><input type="text" id="cad-nome"></div>' +
     '<div class="grid-2">' +
-      '<div class="campo"><label>Apelido desejado</label><input type="text" id="cad-apelido"></div>' +
-      '<div class="campo"><label>Telefone / WhatsApp</label><input type="text" id="cad-telefone" placeholder="(11) 99999-0000"></div>' +
+      '<div class="campo"><label>Nome no colete</label><input type="text" id="cad-colete"></div>' +
+      '<div class="campo"><label>Telefone / WhatsApp *</label><input type="text" id="cad-telefone" placeholder="(11) 99999-0000"></div>' +
     '</div>' +
     '<div class="grid-2">' +
       '<div class="campo"><label>E-mail</label><input type="email" id="cad-email"></div>' +
       '<div class="campo"><label>Data de nascimento</label><input type="date" id="cad-nascimento"></div>' +
     '</div>' +
-    '<div class="campo"><label>Modelo da moto</label><input type="text" id="cad-moto"></div>' +
+    '<div class="campo"><label>Endereço</label><input type="text" id="cad-endereco"></div>' +
+    '<div class="grid-2">' +
+      '<div class="campo"><label>Padrinho no Imaculados</label><input type="text" id="cad-padrinho"></div>' +
+      '<div class="campo"><label>Tipo sanguíneo</label><input type="text" id="cad-sangue" placeholder="O+"></div>' +
+    '</div>' +
+    '<div class="grid-2">' +
+      '<div class="campo"><label>Principal veículo</label><select id="cad-veiculo">' +
+        '<option value="">—</option><option>Moto</option><option>Carro</option></select></div>' +
+      '<div class="campo"><label>Placa do veículo</label><input type="text" id="cad-placa"></div>' +
+    '</div>' +
+    '<div class="campo"><label>Nº da habilitação</label><input type="text" id="cad-cnh"></div>' +
     '<div class="campo"><label>Por que quer fazer parte do M.C.?</label><input type="text" id="cad-mensagem" placeholder="Conte um pouco sobre você"></div>' +
-    '<button class="btn-entrar" onclick="enviarSolicitacaoPublica()">Enviar solicitação</button>';
+    '<button class="btn-entrar" onclick="enviarSolicitacaoPublica()">Enviar solicitação</button>' +
+    '<div style="font-size:11px;color:var(--muted-2);margin-top:14px;line-height:1.6;">' +
+      'Seus dados são usados apenas para a análise do pedido de ingresso. Endereço e ' +
+      'habilitação ficam visíveis somente para a diretoria.' +
+    '</div>';
 }
 
 async function enviarSolicitacaoPublica(){
+  var v = function(x){ var el=document.getElementById(x); return el ? el.value.trim() : ''; };
   var dados = {
-    nome: document.getElementById('cad-nome').value.trim(),
-    apelido_desejado: document.getElementById('cad-apelido').value.trim(),
-    telefone: document.getElementById('cad-telefone').value.trim(),
-    email: document.getElementById('cad-email').value.trim(),
-    data_nascimento: document.getElementById('cad-nascimento').value || null,
-    moto_modelo: document.getElementById('cad-moto').value.trim(),
-    mensagem: document.getElementById('cad-mensagem').value.trim()
+    nome_completo: v('cad-nome'),
+    nome_no_colete: v('cad-colete'),
+    telefone: v('cad-telefone'),
+    email: v('cad-email'),
+    endereco: v('cad-endereco'),
+    data_nascimento: v('cad-nascimento') || null,
+    padrinho_nome: v('cad-padrinho'),
+    tipo_sanguineo: v('cad-sangue'),
+    veiculo_principal: v('cad-veiculo') || null,
+    placa_veiculo: (v('cad-placa')||'').toUpperCase(),
+    habilitacao_numero: v('cad-cnh'),
+    mensagem: v('cad-mensagem')
   };
-  if(!dados.nome || !dados.telefone){ alert('Informe ao menos o nome e o telefone.'); return; }
+  if(!dados.nome_completo || !dados.telefone){ alert('Informe ao menos o nome completo e o telefone.'); return; }
 
-  if(state.apiBase){
+  if(usandoSupabase()){
+    try{ await supabaseFetch('/solicitacoes','POST',dados); }
+    catch(e){ alert('Erro ao enviar solicitação: '+e.message); return; }
+  } else if(temBackend()){
     try{
       if(ehAppsScript(state.apiBase)){
         var r1 = await fetch(state.apiBase, {
@@ -1432,7 +1943,8 @@ async function enviarSolicitacaoPublica(){
     '<div class="confirmacao-box">' +
       '<div class="icone">🏍️</div>' +
       '<h3>Solicitação enviada!</h3>' +
-      '<p>Recebemos seu pedido de ingresso, '+dados.nome.split(' ')[0]+'.<br>A diretoria do Imaculados M.C. vai analisar e entrar em contato pelo telefone informado.</p>' +
+      '<p>Recebemos seu pedido de ingresso, '+dados.nome_completo.split(' ')[0]+'.<br>' +
+      'A diretoria do Imaculados M.C. vai analisar e entrar em contato pelo telefone informado.</p>' +
     '</div>';
 }
 
@@ -1444,7 +1956,7 @@ async function renderSolicitacoes(body){
     '<div id="lista-solicitacoes"></div>';
 
   var lista = demoSolicitacoes;
-  if(state.apiBase){
+  if(temBackend()){
     try{ lista = await apiFetch('/solicitacoes'); }catch(e){ /* mantém mock em caso de falha */ }
   }
   lista = lista.slice().sort(function(a,b){
@@ -1464,9 +1976,9 @@ async function renderSolicitacoes(body){
     return '<div class="solic-card" id="solic-'+s.id+'">' +
       '<div class="solic-topo">' +
         '<div>' +
-          '<div class="solic-nome">'+s.nome+(s.apelido_desejado?' "'+s.apelido_desejado+'"':'')+'</div>' +
-          '<div class="solic-meta">'+s.telefone+(s.email?' · '+s.email:'')+(s.moto_modelo?' · '+s.moto_modelo:'')+'</div>' +
-          '<div class="solic-meta">Enviado em '+fmtDataHora(s.data_solicitacao)+'</div>' +
+          '<div class="solic-nome">'+(s.nome_completo||s.nome||'')+((s.nome_no_colete||s.apelido_desejado)?' "'+(s.nome_no_colete||s.apelido_desejado)+'"':'')+'</div>' +
+          '<div class="solic-meta">'+(s.telefone||'')+(s.email?' · '+s.email:'')+(s.veiculo_principal?' · '+s.veiculo_principal:'')+(s.placa_veiculo?' ('+s.placa_veiculo+')':'')+'</div>' +
+          '<div class="solic-meta">Enviado em '+fmtDataHora(s.data_solicitacao||s.criado_em)+(s.padrinho_nome?' · padrinho: '+s.padrinho_nome:'')+'</div>' +
         '</div>' +
         '<span class="status-pill '+classeStatus+'" id="status-pill-'+s.id+'">'+s.status+'</span>' +
       '</div>' +
@@ -1485,26 +1997,28 @@ async function renderSolicitacoes(body){
 }
 
 async function aprovarSolicitacao(id){
-  if(!confirm('Aprovar esta solicitação? Um novo integrante (Prospero) será criado com acesso ao portal.')) return;
+  if(!confirm('Aprovar esta solicitação? Um novo integrante (Próspero) será criado.')) return;
 
-  var loginGerado, senhaTemp;
-  if(state.apiBase){
+  var loginGerado, senhaTemp, criarContaPropria = false;
+  if(temBackend()){
     try{
       var resultado = await apiFetch('/solicitacoes/'+id+'/aprovar', {method:'POST'});
       loginGerado = resultado.login_gerado;
-      senhaTemp = resultado.senha_temporaria;
-    }catch(e){ alert('Erro ao aprovar na API: '+e.message); return; }
+      senhaTemp   = resultado.senha_temporaria;
+      criarContaPropria = !!resultado.criar_conta;
+    }catch(e){ alert('Erro ao aprovar: '+e.message); return; }
   } else {
     var s = demoSolicitacoes.find(function(x){return x.id===id;});
     if(!s) return;
     s.status = 'Aprovada';
-    var partes = s.nome.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z ]/g,'').split(' ');
-    loginGerado = (partes[0]||'integrante') + (partes.length>1?partes[partes.length-1]:'');
+    loginGerado = s.email || '(sem e-mail)';
     senhaTemp = Math.random().toString(36).slice(-8);
     demoIntegrantes.push({
-      id: Math.max.apply(null, demoIntegrantes.map(function(i){return i.id;})) + 1,
-      nome: s.nome, apelido: s.apelido_desejado, cargo:'Prospero', status:'Ativo',
-      moto_modelo: s.moto_modelo||'', moto_placa:'', telefone: s.telefone, email: s.email||''
+      id: Math.max.apply(null, demoIntegrantes.map(function(i){return i.id;}).concat([0])) + 1,
+      nome_completo: s.nome_completo||s.nome, nome_no_colete: s.nome_no_colete||s.apelido_desejado,
+      cargo:'Próspero', status:'Ativo', veiculo_principal: s.veiculo_principal||'',
+      placa_veiculo: s.placa_veiculo||'', telefone: s.telefone, email: s.email||'',
+      padrinho_nome: s.padrinho_nome||'', tipo_sanguineo: s.tipo_sanguineo||''
     });
   }
 
@@ -1514,17 +2028,19 @@ async function aprovarSolicitacao(id){
   if(acoes){ acoes.innerHTML=''; }
   var box = document.getElementById('credenciais-'+id);
   if(box){
-    box.innerHTML = '<div class="credenciais-box">' +
-      '✅ Integrante aprovado! Repasse o acesso:<br>' +
-      '<div><b>Login:</b> '+loginGerado+'</div>' +
-      '<div><b>Senha temporária:</b> '+senhaTemp+'</div>' +
-    '</div>';
+    box.innerHTML = criarContaPropria
+      ? '<div class="credenciais-box">✅ Integrante criado!<br>' +
+        'Peça para acessar o portal, clicar em <b>Primeiro acesso</b> e cadastrar a senha usando o e-mail <b>' +
+        loginGerado + '</b>. O sistema reconhece e libera automaticamente.</div>'
+      : '<div class="credenciais-box">✅ Integrante aprovado! Repasse o acesso:' +
+        '<div><b>Login:</b> '+loginGerado+'</div>' +
+        '<div><b>Senha temporária:</b> '+senhaTemp+'</div></div>';
   }
 }
 
 async function recusarSolicitacao(id){
   if(!confirm('Recusar esta solicitação?')) return;
-  if(state.apiBase){
+  if(temBackend()){
     try{ await apiFetch('/solicitacoes/'+id+'/recusar', {method:'POST'}); }
     catch(e){ alert('Erro ao recusar na API: '+e.message); return; }
   } else {
@@ -1563,7 +2079,7 @@ async function renderAcessos(body){
     '<div id="lista-acessos"></div>';
 
   var lista = demoUsuarios;
-  if(state.apiBase){
+  if(temBackend()){
     try{ lista = await apiFetch('/usuarios'); }catch(e){ /* mantém mock em caso de falha */ }
   }
   usuariosAtuais = lista;
@@ -1665,7 +2181,7 @@ function restaurarPadraoCargo(usuarioId){
 
 async function salvarPermissoes(usuarioId){
   var custom = rascunhoPermissoes[usuarioId] || {};
-  if(state.apiBase){
+  if(temBackend()){
     try{
       await apiFetch('/usuarios/'+usuarioId+'/permissoes', {method:'PUT', body:JSON.stringify({permissoes:custom})});
     }catch(e){ alert('Erro ao salvar permissões: '+e.message); return; }
@@ -1679,7 +2195,7 @@ async function salvarPermissoes(usuarioId){
 }
 
 async function alterarCargoUsuario(usuarioId, novoCargo){
-  if(state.apiBase){
+  if(temBackend()){
     try{ await apiFetch('/usuarios/'+usuarioId, {method:'PATCH', body:JSON.stringify({cargo:novoCargo})}); }
     catch(e){ alert('Erro ao alterar cargo: '+e.message); renderAcessos(document.getElementById('view-body')); return; }
   } else {
@@ -1699,7 +2215,7 @@ async function alternarAtivoUsuario(usuarioId){
   var novoAtivo = u ? !u.ativo : true;
   if(!novoAtivo && !confirm('Bloquear o acesso desta pessoa ao portal?')) return;
 
-  if(state.apiBase){
+  if(temBackend()){
     try{ await apiFetch('/usuarios/'+usuarioId, {method:'PATCH', body:JSON.stringify({ativo:novoAtivo})}); }
     catch(e){ alert('Erro ao alterar acesso: '+e.message); return; }
   } else if(u){
@@ -1709,22 +2225,28 @@ async function alternarAtivoUsuario(usuarioId){
 }
 
 async function resetarSenhaUsuario(usuarioId){
-  if(!confirm('Gerar uma nova senha temporária para esta pessoa?')) return;
-  var login, senha;
-  if(state.apiBase){
+  if(!confirm('Enviar um link de redefinição de senha para esta pessoa?')) return;
+  var msg = document.getElementById('msg-acesso-'+usuarioId);
+
+  if(temBackend()){
     try{
       var r = await apiFetch('/usuarios/'+usuarioId+'/resetar-senha', {method:'POST'});
-      login = r.login; senha = r.senha_temporaria;
-    }catch(e){ alert('Erro ao resetar senha: '+e.message); return; }
-  } else {
-    var uSenha = acharUsuario(usuarioId);
-    login = uSenha ? uSenha.login : '';
-    senha = Math.random().toString(36).slice(-8);
+      if(msg){
+        msg.innerHTML = r.email_enviado
+          ? '<div class="credenciais-box">📧 Link de redefinição enviado para <b>'+r.login+'</b>.<br>' +
+            'Por segurança, ninguém — nem a diretoria — consegue ver ou definir a senha de outra pessoa.</div>'
+          : '<div class="credenciais-box">🔑 Nova senha gerada — repasse para a pessoa:' +
+            '<div><b>Login:</b> '+r.login+'</div><div><b>Senha temporária:</b> '+r.senha_temporaria+'</div></div>';
+      }
+    }catch(e){ alert('Erro: '+e.message); }
+    return;
   }
-  var msg = document.getElementById('msg-acesso-'+usuarioId);
+
+  var u = acharUsuario(usuarioId);
   if(msg){
     msg.innerHTML = '<div class="credenciais-box">🔑 Nova senha gerada — repasse para a pessoa:' +
-      '<div><b>Login:</b> '+login+'</div><div><b>Senha temporária:</b> '+senha+'</div></div>';
+      '<div><b>Login:</b> '+(u?u.login:'')+'</div>' +
+      '<div><b>Senha temporária:</b> '+Math.random().toString(36).slice(-8)+'</div></div>';
   }
 }
 
@@ -1790,7 +2312,26 @@ window.addEventListener('appinstalled', function(){ fecharFaixaInstalar(); });
 if(ehIOS()) setTimeout(mostrarFaixaInstalar, 2500);
 
 /* ============ Início ============ */
-render();
+/* Se a pessoa já estava logada, o Supabase guarda a sessão: retomamos direto,
+   sem obrigar a digitar a senha a cada visita. */
+async function retomarSessao(){
+  if(usandoSupabase()){
+    var c = clienteSupabase();
+    if(c){
+      try{
+        var ses = await c.auth.getSession();
+        if(ses && ses.data && ses.data.session){
+          var perfil = await apiFetch('/auth/me');
+          state.token='supabase'; state.cargo=perfil.cargo; state.nome=perfil.nome;
+          state.permissoes = perfil.permissoes || [];
+          state.screen='app'; state.view='dashboard';
+        }
+      }catch(e){ /* sessão inválida ou perfil não liberado: vai para a tela pública */ }
+    }
+  }
+  render();
+}
+retomarSessao();
 </script>
 </body>
 </html>
