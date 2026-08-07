@@ -692,3 +692,45 @@ grant execute on function public.tem_permissao(text)              to authenticat
 grant execute on function public.meu_integrante_id()              to authenticated;
 grant execute on function public.minhas_permissoes()              to authenticated;
 grant execute on function public.permissoes_efetivas(text, jsonb) to authenticated;
+
+-- ============================================================================
+-- 13. IMAGEM NOS COMUNICADOS
+-- ============================================================================
+-- Guardamos o CAMINHO no Storage, não a URL completa: assim o bucket pode mudar
+-- de nome ou visibilidade sem invalidar os registros já publicados.
+alter table public.comunicados
+  add column if not exists imagem_path text;
+
+comment on column public.comunicados.imagem_path is
+  'Caminho da imagem no bucket comunicados do Storage. Nulo quando o aviso não tem imagem.';
+
+-- Bucket público: a imagem de um aviso é para todos os integrantes verem, e
+-- arquivo público é servido pelo CDN (bem mais rápido no celular).
+-- Nada sensível aqui — atas e contratos ficam em bucket privado.
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('comunicados', 'comunicados', true, 5242880,
+        array['image/jpeg','image/png','image/webp','image/gif'])
+on conflict (id) do update
+  set public = true,
+      file_size_limit = 5242880,
+      allowed_mime_types = array['image/jpeg','image/png','image/webp','image/gif'];
+
+drop policy if exists comunicados_img_ler on storage.objects;
+create policy comunicados_img_ler on storage.objects
+  for select to public using (bucket_id = 'comunicados');
+
+drop policy if exists comunicados_img_enviar on storage.objects;
+create policy comunicados_img_enviar on storage.objects
+  for insert to authenticated
+  with check (bucket_id = 'comunicados' and public.tem_permissao('editar_comunicados'));
+
+drop policy if exists comunicados_img_atualizar on storage.objects;
+create policy comunicados_img_atualizar on storage.objects
+  for update to authenticated
+  using (bucket_id = 'comunicados' and public.tem_permissao('editar_comunicados'))
+  with check (bucket_id = 'comunicados' and public.tem_permissao('editar_comunicados'));
+
+drop policy if exists comunicados_img_excluir on storage.objects;
+create policy comunicados_img_excluir on storage.objects
+  for delete to authenticated
+  using (bucket_id = 'comunicados' and public.tem_permissao('editar_comunicados'));

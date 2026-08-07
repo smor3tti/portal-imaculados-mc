@@ -131,8 +131,9 @@ button,input{font-family:inherit;}
 .subtitulo-login{color:var(--muted);font-size:11px;letter-spacing:2px;margin-bottom:26px;text-transform:uppercase;}
 .campo{text-align:left;margin-bottom:14px;}
 .campo label{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;}
-.campo input,.campo select{width:100%;background:var(--surface-2);border:1px solid var(--border-strong);border-radius:8px;padding:11px 12px;color:var(--cream);font-size:14px;}
-.campo input:focus,.campo select:focus{outline:none;border-color:var(--gold);}
+.campo input,.campo select,.campo textarea{width:100%;background:var(--surface-2);border:1px solid var(--border-strong);border-radius:8px;padding:11px 12px;color:var(--cream);font-size:14px;font-family:inherit;}
+.campo textarea{resize:vertical;min-height:80px;line-height:1.5;}
+.campo input:focus,.campo select:focus,.campo textarea:focus{outline:none;border-color:var(--gold);}
 .btn-entrar{width:100%;background:var(--gold);color:#0d0d0d;border:none;border-radius:8px;padding:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;font-size:13px;cursor:pointer;margin-top:8px;}
 .btn-entrar:hover{background:var(--gold-light);}
 .erro-login{color:var(--danger);font-size:12px;margin-top:14px;min-height:14px;}
@@ -595,6 +596,38 @@ function clienteSupabase(){
   return sb;
 }
 function usandoSupabase(){ return state.backend === 'supabase'; }
+
+/* ---- Imagens dos comunicados (Supabase Storage) ---- */
+var TAMANHO_MAX_IMAGEM_MB = 5;
+
+function urlPublicaImagem(c, caminho){
+  try { return c.storage.from('comunicados').getPublicUrl(caminho).data.publicUrl; }
+  catch(e){ return null; }
+}
+
+/* Envia a imagem e devolve o caminho guardado no banco.
+   O nome é gerado aqui: nomes vindos do celular costumam ter acento, espaço e
+   caracteres que quebram a URL — e dois envios com o mesmo nome se sobrescreveriam. */
+async function enviarImagemComunicado(arquivo){
+  var c = clienteSupabase();
+  if (!c) throw new Error('Sem conexão com o banco.');
+
+  if (!/^image\//.test(arquivo.type)){
+    throw new Error('Selecione uma imagem (JPG, PNG, WEBP ou GIF).');
+  }
+  if (arquivo.size > TAMANHO_MAX_IMAGEM_MB * 1024 * 1024){
+    throw new Error('A imagem tem ' + (arquivo.size/1048576).toFixed(1) +
+                    'MB. O limite é ' + TAMANHO_MAX_IMAGEM_MB + 'MB.');
+  }
+
+  var ext = (arquivo.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g,'');
+  var nome = Date.now() + '-' + Math.random().toString(36).slice(2,8) + '.' + ext;
+
+  var envio = await c.storage.from('comunicados')
+    .upload(nome, arquivo, {contentType: arquivo.type, upsert: false});
+  if (envio.error) throw new Error('Falha ao enviar a imagem: ' + envio.error.message);
+  return nome;
+}
 /* Existe um backend real (Supabase ou API própria)? Se não, é demonstração.
    Sem isso, telas ficariam mostrando dados fictícios mesmo conectadas. */
 function temBackend(){ return usandoSupabase() || !!state.apiBase; }
@@ -760,6 +793,9 @@ async function supabaseFetch(path, metodo, corpo){
       return r.map(function(x){
         x.autor_nome = x.autor ? x.autor.nome_completo : null;
         x.data = x.criado_em;
+        /* O banco guarda só o caminho; a URL pública é montada na hora.
+           Assim o bucket pode ser renomeado sem invalidar os registros. */
+        x.imagem_url = x.imagem_path ? urlPublicaImagem(c, x.imagem_path) : null;
         return x;
       });
     }
@@ -767,10 +803,18 @@ async function supabaseFetch(path, metodo, corpo){
       var autor = await meuIntegranteId(c);
       return erroSb(await c.from('comunicados').insert({
         titulo: corpo.titulo, mensagem: corpo.mensagem,
-        fixado: !!corpo.fixado, autor_id: autor
+        fixado: !!corpo.fixado, autor_id: autor,
+        imagem_path: corpo.imagem_path || null
       }).select().single());
     }
     if (p.length === 2 && metodo === 'DELETE'){
+      /* Apaga a imagem antes do registro: se fizéssemos ao contrário e a
+         segunda etapa falhasse, o arquivo ficaria órfão ocupando espaço. */
+      var alvo = erroSb(await c.from('comunicados')
+        .select('imagem_path').eq('id', p[1]).maybeSingle());
+      if (alvo && alvo.imagem_path){
+        try { await c.storage.from('comunicados').remove([alvo.imagem_path]); } catch(e){}
+      }
       erroSb(await c.from('comunicados').delete().eq('id', p[1]));
       return {detail:'Comunicado excluído'};
     }
@@ -1652,9 +1696,24 @@ async function renderComunicados(body){
         '<button class="acao-link" style="color:var(--danger);" onclick="excluirComunicado('+c.id+')">Excluir</button>' +
       '</div>' +
       '<div style="font-size:11px;color:var(--muted);margin:4px 0 10px;">'+(c.autor_nome||integranteNome(c.autor_id))+' · '+fmtDataHora(c.data)+'</div>' +
-      '<div style="font-size:13.5px;color:var(--cream);line-height:1.6;">'+c.mensagem+'</div>' +
+      '<div style="font-size:13.5px;color:var(--cream);line-height:1.6;white-space:pre-wrap;">'+c.mensagem+'</div>' +
+      (c.imagem_url ?
+        '<img src="'+c.imagem_url+'" alt="Imagem do comunicado" loading="lazy" ' +
+             'onclick="ampliarImagem(this.src)" ' +
+             'style="width:100%;max-height:340px;object-fit:cover;border-radius:8px;' +
+                    'margin-top:12px;cursor:zoom-in;border:1px solid var(--border);">'
+        : '') +
     '</div>';
   }).join('');
+}
+
+/* Abre a imagem em tela cheia — no celular a miniatura do card costuma ser
+   pequena demais para ler cartaz de evento ou detalhe de foto. */
+function ampliarImagem(url){
+  document.getElementById('modal-root').innerHTML =
+    '<div class="modal-overlay" style="padding:12px;" onclick="fecharModal()">' +
+      '<img src="'+url+'" style="max-width:100%;max-height:92vh;object-fit:contain;border-radius:10px;">' +
+    '</div>';
 }
 
 function abrirModalNovoComunicado(){
@@ -1663,16 +1722,55 @@ function abrirModalNovoComunicado(){
       '<div class="modal">' +
         '<h3>Novo comunicado</h3>' +
         '<div class="campo"><label>Título</label><input type="text" id="novo-com-titulo"></div>' +
-        '<div class="campo"><label>Mensagem</label><input type="text" id="novo-com-mensagem"></div>' +
+        '<div class="campo"><label>Mensagem</label><textarea id="novo-com-mensagem" rows="4"></textarea></div>' +
+        '<div class="campo">' +
+          '<label>Imagem (opcional — JPG, PNG, WEBP ou GIF, até ' + TAMANHO_MAX_IMAGEM_MB + 'MB)</label>' +
+          '<input type="file" id="novo-com-imagem" accept="image/*" style="padding:8px;" onchange="previewImagemComunicado(this)">' +
+          '<div id="preview-imagem"></div>' +
+        '</div>' +
         '<div class="campo" style="display:flex;align-items:center;gap:8px;">' +
           '<input type="checkbox" id="novo-com-fixado" style="width:auto;"> <label style="margin:0;text-transform:none;font-size:13px;color:var(--cream);" for="novo-com-fixado">Fixar no topo</label>' +
         '</div>' +
         '<div class="modal-acoes">' +
           '<button class="btn-secundario" onclick="fecharModal()">Cancelar</button>' +
-          '<button class="btn-entrar" style="width:auto;padding:9px 20px;" onclick="salvarNovoComunicado()">Publicar</button>' +
+          '<button class="btn-entrar" id="btn-publicar-com" style="width:auto;padding:9px 20px;" onclick="salvarNovoComunicado()">Publicar</button>' +
         '</div>' +
       '</div>' +
     '</div>';
+}
+
+/* Mostra a imagem escolhida antes de publicar: sem isso a pessoa só descobre
+   que pegou o arquivo errado depois que o aviso já foi para todo o clube. */
+function previewImagemComunicado(input){
+  var alvo = document.getElementById('preview-imagem');
+  var arq = input.files && input.files[0];
+  if (!arq){ alvo.innerHTML = ''; return; }
+
+  if (!/^image\//.test(arq.type)){
+    alvo.innerHTML = '<div style="color:var(--danger);font-size:12px;margin-top:8px;">Este arquivo não é uma imagem.</div>';
+    input.value = ''; return;
+  }
+  if (arq.size > TAMANHO_MAX_IMAGEM_MB * 1024 * 1024){
+    alvo.innerHTML = '<div style="color:var(--danger);font-size:12px;margin-top:8px;">Imagem de ' +
+      (arq.size/1048576).toFixed(1) + 'MB — o limite é ' + TAMANHO_MAX_IMAGEM_MB + 'MB.</div>';
+    input.value = ''; return;
+  }
+
+  var url = URL.createObjectURL(arq);
+  alvo.innerHTML =
+    '<div style="margin-top:10px;position:relative;">' +
+      '<img src="' + url + '" style="width:100%;max-height:200px;object-fit:cover;border-radius:8px;border:1px solid var(--border-strong);">' +
+      '<div style="font-size:11px;color:var(--muted);margin-top:6px;display:flex;justify-content:space-between;gap:8px;">' +
+        '<span>' + (arq.size/1024).toFixed(0) + ' KB</span>' +
+        '<button class="acao-link" style="color:var(--danger);" onclick="limparImagemComunicado()">Remover imagem</button>' +
+      '</div>' +
+    '</div>';
+}
+
+function limparImagemComunicado(){
+  var input = document.getElementById('novo-com-imagem');
+  if (input) input.value = '';
+  document.getElementById('preview-imagem').innerHTML = '';
 }
 
 async function salvarNovoComunicado(){
@@ -1683,13 +1781,39 @@ async function salvarNovoComunicado(){
   };
   if(!novo.titulo || !novo.mensagem){ alert('Preencha o título e a mensagem.'); return; }
 
+  var inputImg = document.getElementById('novo-com-imagem');
+  var arquivo = inputImg && inputImg.files ? inputImg.files[0] : null;
+  var botao = document.getElementById('btn-publicar-com');
+
+  /* Trava o botão durante o envio: foto de celular pode levar alguns segundos,
+     e sem isso um duplo clique publicaria o mesmo aviso duas vezes. */
+  function ocupado(texto){
+    if(!botao) return;
+    botao.disabled = !!texto;
+    botao.textContent = texto || 'Publicar';
+    botao.style.opacity = texto ? '0.6' : '';
+  }
+
   if(temBackend()){
-    try{ await apiFetch('/comunicados', {method:'POST', body:JSON.stringify(novo)}); }
-    catch(e){ alert('Erro ao publicar na API: '+e.message); return; }
+    try{
+      if(arquivo && usandoSupabase()){
+        ocupado('Enviando imagem...');
+        novo.imagem_path = await enviarImagemComunicado(arquivo);
+      }
+      ocupado('Publicando...');
+      await apiFetch('/comunicados', {method:'POST', body:JSON.stringify(novo)});
+    }
+    catch(e){
+      ocupado(null);
+      alert('Erro ao publicar: '+e.message);
+      return;
+    }
   } else {
     novo.id = Math.max.apply(null, demoComunicados.map(function(c){return c.id;})) + 1;
     novo.autor_id = USUARIO_DEMO_ID;
     novo.data = new Date().toISOString();
+    /* Na demonstração não há servidor: a imagem fica só na memória do navegador */
+    if(arquivo) novo.imagem_url = URL.createObjectURL(arquivo);
     demoComunicados.unshift(novo);
   }
   fecharModal();
