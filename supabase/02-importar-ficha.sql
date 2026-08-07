@@ -212,3 +212,10 @@ update public.integrantes i
 
 -- Depois de conferir tudo, você pode limpar a área de recepção:
 -- drop table public.importacao_ficha;
+
+-- ============================================================================
+-- ENDURECIMENTO DE SEGURANÇA
+-- ============================================================================
+alter function public.tentar_data(text)      set search_path = public;
+alter function public.unaccent_simples(text) set search_path = public;
+alter function public.normalizar_cargo(text) set search_path = public;

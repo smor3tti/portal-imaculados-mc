@@ -669,3 +669,26 @@ create trigger trg_presencas_atualizado before update on public.presencas
 -- ============================================================================
 -- FIM. Próximo passo: 02-importar-respostas.sql
 -- ============================================================================
+
+-- ============================================================================
+-- 12. ENDURECIMENTO DE SEGURANÇA (apontado pelo verificador do Supabase)
+-- ============================================================================
+-- Fixa o search_path: sem isso, alguém poderia criar um schema com objetos de
+-- mesmo nome e fazer a função usar os objetos errados.
+alter function public.permissoes_efetivas(text, jsonb) set search_path = public;
+alter function public.sincronizar_cargo()              set search_path = public;
+alter function public.lancar_mensalidade_no_caixa()    set search_path = public;
+alter function public.marcar_atualizacao()             set search_path = public;
+
+-- Toda função nasce com EXECUTE liberado para PUBLIC. Revogamos e devolvemos
+-- apenas a quem precisa: as políticas de segurança chamam estas funções em nome
+-- do usuário logado, então 'authenticated' precisa mantê-las.
+revoke execute on function public.tem_permissao(text)              from public, anon;
+revoke execute on function public.meu_integrante_id()              from public, anon;
+revoke execute on function public.minhas_permissoes()              from public, anon;
+revoke execute on function public.permissoes_efetivas(text, jsonb) from public, anon;
+
+grant execute on function public.tem_permissao(text)              to authenticated;
+grant execute on function public.meu_integrante_id()              to authenticated;
+grant execute on function public.minhas_permissoes()              to authenticated;
+grant execute on function public.permissoes_efetivas(text, jsonb) to authenticated;
