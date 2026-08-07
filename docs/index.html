@@ -597,18 +597,18 @@ function clienteSupabase(){
 }
 function usandoSupabase(){ return state.backend === 'supabase'; }
 
-/* ---- Imagens dos comunicados (Supabase Storage) ---- */
+/* ---- Imagens (Supabase Storage) ---- */
 var TAMANHO_MAX_IMAGEM_MB = 5;
 
-function urlPublicaImagem(c, caminho){
-  try { return c.storage.from('comunicados').getPublicUrl(caminho).data.publicUrl; }
+function urlPublicaImagem(c, caminho, bucket){
+  try { return c.storage.from(bucket || 'comunicados').getPublicUrl(caminho).data.publicUrl; }
   catch(e){ return null; }
 }
 
 /* Envia a imagem e devolve o caminho guardado no banco.
    O nome é gerado aqui: nomes vindos do celular costumam ter acento, espaço e
    caracteres que quebram a URL — e dois envios com o mesmo nome se sobrescreveriam. */
-async function enviarImagemComunicado(arquivo){
+async function enviarImagem(arquivo, bucket){
   var c = clienteSupabase();
   if (!c) throw new Error('Sem conexão com o banco.');
 
@@ -623,11 +623,14 @@ async function enviarImagemComunicado(arquivo){
   var ext = (arquivo.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g,'');
   var nome = Date.now() + '-' + Math.random().toString(36).slice(2,8) + '.' + ext;
 
-  var envio = await c.storage.from('comunicados')
+  var envio = await c.storage.from(bucket)
     .upload(nome, arquivo, {contentType: arquivo.type, upsert: false});
   if (envio.error) throw new Error('Falha ao enviar a imagem: ' + envio.error.message);
   return nome;
 }
+
+/* Mantido para não quebrar chamadas existentes */
+async function enviarImagemComunicado(arquivo){ return enviarImagem(arquivo, 'comunicados'); }
 /* Existe um backend real (Supabase ou API própria)? Se não, é demonstração.
    Sem isso, telas ficariam mostrando dados fictícios mesmo conectadas. */
 function temBackend(){ return usandoSupabase() || !!state.apiBase; }
@@ -750,6 +753,7 @@ async function supabaseFetch(path, metodo, corpo){
         e.total_confirmados = pres.filter(function(x){
           return x.evento_id === e.id && x.confirmacao === 'Confirmado';
         }).length;
+        e.imagem_url = e.imagem_path ? urlPublicaImagem(c, e.imagem_path, 'eventos') : null;
         return e;
       });
     }
@@ -763,6 +767,13 @@ async function supabaseFetch(path, metodo, corpo){
     if (p.length === 2 && metodo === 'PUT')
       return erroSb(await c.from('eventos').update(corpo).eq('id', p[1]).select().single());
     if (p.length === 2 && metodo === 'DELETE'){
+      /* Apaga o arquivo antes do registro: na ordem inversa, uma falha deixaria
+         a imagem órfã no Storage sem nenhum registro apontando para ela. */
+      var alvoEv = erroSb(await c.from('eventos')
+        .select('imagem_path').eq('id', p[1]).maybeSingle());
+      if (alvoEv && alvoEv.imagem_path){
+        try { await c.storage.from('eventos').remove([alvoEv.imagem_path]); } catch(e){}
+      }
       erroSb(await c.from('eventos').delete().eq('id', p[1]));
       return {detail:'Evento excluído'};
     }
@@ -795,7 +806,7 @@ async function supabaseFetch(path, metodo, corpo){
         x.data = x.criado_em;
         /* O banco guarda só o caminho; a URL pública é montada na hora.
            Assim o bucket pode ser renomeado sem invalidar os registros. */
-        x.imagem_url = x.imagem_path ? urlPublicaImagem(c, x.imagem_path) : null;
+        x.imagem_url = x.imagem_path ? urlPublicaImagem(c, x.imagem_path, 'comunicados') : null;
         return x;
       });
     }
@@ -1534,7 +1545,7 @@ async function marcarPaga(id){
 }
 
 /* ============ Eventos ============ */
-var TIPO_ICONE = {'Passeio':'🏍️','Encontro':'🤝','Churrasco':'🍖','Aniversário':'🎉','Outro':'📌'};
+var TIPO_ICONE = {'Passeio':'🏍️','Encontro':'🤝','Churrasco':'🍖','Aniversário':'🎉','Reunião':'📋','Outro':'📌'};
 
 function statusPillClasseEvento(status){
   if(status==='Realizado') return 'status-ativo';
@@ -1568,13 +1579,19 @@ async function renderEventos(body){
     var minhaPresenca = presencasEv.find(function(p){return p.integrante_id===USUARIO_DEMO_ID;});
     var meuStatus = minhaPresenca ? minhaPresenca.confirmacao : 'Pendente';
     return '<div class="card">' +
+      (ev.imagem_url ?
+        '<img src="'+ev.imagem_url+'" alt="Imagem do evento" loading="lazy" ' +
+             'onclick="ampliarImagem(this.src)" ' +
+             'style="width:100%;height:150px;object-fit:cover;border-radius:8px;' +
+                    'margin-bottom:12px;cursor:zoom-in;border:1px solid var(--border);">'
+        : '') +
       '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">' +
         '<div class="card-titulo">'+(TIPO_ICONE[ev.tipo]||'📌')+' '+ev.tipo.toUpperCase()+'</div>' +
         '<span class="status-pill '+statusPillClasseEvento(ev.status)+'">'+ev.status+'</span>' +
       '</div>' +
       '<div style="font-size:16px;font-weight:700;color:var(--cream);margin:6px 0 2px;">'+ev.nome+'</div>' +
       '<div class="card-sub" style="margin-top:0;">'+fmtData(ev.data)+' · '+(ev.local||'Local a definir')+'</div>' +
-      '<div style="font-size:12.5px;color:var(--muted);margin-top:10px;line-height:1.5;">'+(ev.descricao||'')+'</div>' +
+      '<div style="font-size:12.5px;color:var(--muted);margin-top:10px;line-height:1.5;white-space:pre-wrap;">'+(ev.descricao||'')+'</div>' +
       '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;">' +
         '<button class="acao-link" onclick="verPresencas('+ev.id+')">'+totalConfirmados+' confirmado(s) — ver lista</button>' +
       '</div>' +
@@ -1629,14 +1646,19 @@ function abrirModalNovoEvento(){
         '<div class="grid-2">' +
           '<div class="campo"><label>Data</label><input type="date" id="novo-evento-data"></div>' +
           '<div class="campo"><label>Tipo</label><select id="novo-evento-tipo">' +
-            '<option>Encontro</option><option>Passeio</option><option>Churrasco</option><option>Aniversário</option><option>Outro</option>' +
+            '<option>Encontro</option><option>Passeio</option><option>Churrasco</option><option>Aniversário</option><option>Reunião</option><option>Outro</option>' +
           '</select></div>' +
         '</div>' +
         '<div class="campo"><label>Local</label><input type="text" id="novo-evento-local"></div>' +
-        '<div class="campo"><label>Descrição</label><input type="text" id="novo-evento-descricao"></div>' +
+        '<div class="campo"><label>Descrição</label><textarea id="novo-evento-descricao" rows="3"></textarea></div>' +
+        '<div class="campo">' +
+          '<label>Imagem / cartaz (opcional — até ' + TAMANHO_MAX_IMAGEM_MB + 'MB)</label>' +
+          '<input type="file" id="novo-evento-imagem" accept="image/*" style="padding:8px;" onchange="previewImagem(this, \'preview-imagem-evento\', \'novo-evento-imagem\')">' +
+          '<div id="preview-imagem-evento"></div>' +
+        '</div>' +
         '<div class="modal-acoes">' +
           '<button class="btn-secundario" onclick="fecharModal()">Cancelar</button>' +
-          '<button class="btn-entrar" style="width:auto;padding:9px 20px;" onclick="salvarNovoEvento()">Salvar</button>' +
+          '<button class="btn-entrar" id="btn-salvar-evento" style="width:auto;padding:9px 20px;" onclick="salvarNovoEvento()">Salvar</button>' +
         '</div>' +
       '</div>' +
     '</div>';
@@ -1653,12 +1675,36 @@ async function salvarNovoEvento(){
   };
   if(!novo.nome || !novo.data){ alert('Informe ao menos o nome e a data do evento.'); return; }
 
+  var inputImg = document.getElementById('novo-evento-imagem');
+  var arquivo = inputImg && inputImg.files ? inputImg.files[0] : null;
+  var botao = document.getElementById('btn-salvar-evento');
+
+  /* Trava o botão durante o envio: foto de celular leva alguns segundos, e sem
+     isso um duplo clique criaria o mesmo evento duas vezes. */
+  function ocupado(texto){
+    if(!botao) return;
+    botao.disabled = !!texto;
+    botao.textContent = texto || 'Salvar';
+    botao.style.opacity = texto ? '0.6' : '';
+  }
+
   if(temBackend()){
-    try{ await apiFetch('/eventos', {method:'POST', body:JSON.stringify(novo)}); }
-    catch(e){ alert('Erro ao salvar na API: '+e.message); return; }
+    try{
+      if(arquivo && usandoSupabase()){
+        ocupado('Enviando imagem...');
+        novo.imagem_path = await enviarImagem(arquivo, 'eventos');
+      }
+      ocupado('Salvando...');
+      await apiFetch('/eventos', {method:'POST', body:JSON.stringify(novo)});
+    }catch(e){
+      ocupado(null);
+      alert('Erro ao salvar: '+e.message);
+      return;
+    }
   } else {
     novo.id = Math.max.apply(null, demoEventos.map(function(e){return e.id;})) + 1;
     novo.criador_id = USUARIO_DEMO_ID;
+    if(arquivo) novo.imagem_url = URL.createObjectURL(arquivo);
     demoEventos.push(novo);
     demoPresencas[novo.id] = [];
   }
@@ -1741,9 +1787,10 @@ function abrirModalNovoComunicado(){
 
 /* Mostra a imagem escolhida antes de publicar: sem isso a pessoa só descobre
    que pegou o arquivo errado depois que o aviso já foi para todo o clube. */
-function previewImagemComunicado(input){
-  var alvo = document.getElementById('preview-imagem');
+function previewImagem(input, idPreview, idInput){
+  var alvo = document.getElementById(idPreview);
   var arq = input.files && input.files[0];
+  if (!alvo) return;
   if (!arq){ alvo.innerHTML = ''; return; }
 
   if (!/^image\//.test(arq.type)){
@@ -1758,20 +1805,25 @@ function previewImagemComunicado(input){
 
   var url = URL.createObjectURL(arq);
   alvo.innerHTML =
-    '<div style="margin-top:10px;position:relative;">' +
+    '<div style="margin-top:10px;">' +
       '<img src="' + url + '" style="width:100%;max-height:200px;object-fit:cover;border-radius:8px;border:1px solid var(--border-strong);">' +
       '<div style="font-size:11px;color:var(--muted);margin-top:6px;display:flex;justify-content:space-between;gap:8px;">' +
         '<span>' + (arq.size/1024).toFixed(0) + ' KB</span>' +
-        '<button class="acao-link" style="color:var(--danger);" onclick="limparImagemComunicado()">Remover imagem</button>' +
+        '<button class="acao-link" style="color:var(--danger);" onclick="limparImagem(\'' + idInput + '\',\'' + idPreview + '\')">Remover imagem</button>' +
       '</div>' +
     '</div>';
 }
 
-function limparImagemComunicado(){
-  var input = document.getElementById('novo-com-imagem');
+function limparImagem(idInput, idPreview){
+  var input = document.getElementById(idInput);
   if (input) input.value = '';
-  document.getElementById('preview-imagem').innerHTML = '';
+  var alvo = document.getElementById(idPreview);
+  if (alvo) alvo.innerHTML = '';
 }
+
+/* Mantidas para o formulário de comunicados */
+function previewImagemComunicado(input){ previewImagem(input, 'preview-imagem', 'novo-com-imagem'); }
+function limparImagemComunicado(){ limparImagem('novo-com-imagem', 'preview-imagem'); }
 
 async function salvarNovoComunicado(){
   var novo = {
