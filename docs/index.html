@@ -199,6 +199,7 @@ tr:hover td{background:#191919;}
 .status-pill{display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;}
 .status-ativo{background:rgba(79,157,108,0.15);color:var(--success);}
 .status-inativo{background:rgba(139,30,30,0.35);color:#ff8478;}
+.status-afastado{background:rgba(212,175,55,0.18);color:var(--gold-light);}
 .status-pago{background:rgba(79,157,108,0.15);color:var(--success);}
 .status-pendente{background:rgba(139,30,30,0.35);color:#ff8478;}
 .card-financeiro{border-left:3px solid var(--vermelho);}
@@ -724,22 +725,64 @@ async function supabaseFetch(path, metodo, corpo){
   if (p[0] === 'mensalidades'){
     if (p.length === 1 && metodo === 'GET'){
       r = erroSb(await c.from('mensalidades')
-        .select('*, integrante:integrante_id(nome_completo,nome_no_colete)')
+        .select('*, integrante:integrante_id(nome_completo,nome_no_colete,status)')
         .order('vencimento', {ascending:false}));
       return r.map(function(m){
         m.integrante_nome = m.integrante ? m.integrante.nome_completo : null;
+        m.integrante_colete = m.integrante ? m.integrante.nome_no_colete : null;
         m.valor = Number(m.valor);
         return m;
       });
     }
     if (p.length === 1 && metodo === 'POST')
       return erroSb(await c.from('mensalidades').insert(corpo).select().single());
+    if (p.length === 2 && p[1] === 'gerar'){
+      /* O banco decide quem é cobrado (só Ativos) e trava duplicidade.
+         Deixar essa regra no servidor evita que a tela e o banco discordem. */
+      r = erroSb(await c.rpc('gerar_mensalidades', {
+        p_referencia: corpo.referencia,
+        p_valor: corpo.valor || 40,
+        p_dia_venc: corpo.dia_vencimento || 10
+      }));
+      return Array.isArray(r) ? r[0] : r;
+    }
     if (p.length === 3 && p[2] === 'pagar'){
       return erroSb(await c.from('mensalidades').update({
         pago: true,
         data_pagamento: (corpo && corpo.data_pagamento) || new Date().toISOString().slice(0,10),
         forma_pagamento: (corpo && corpo.forma_pagamento) || 'Pix'
       }).eq('id', p[1]).select().single());
+    }
+    if (p.length === 3 && p[2] === 'estornar'){
+      erroSb(await c.rpc('estornar_pagamento', {p_mensalidade_id: Number(p[1])}));
+      return {detail:'Pagamento estornado'};
+    }
+  }
+
+  /* ---- caixa ---- */
+  if (p[0] === 'caixa'){
+    if (p.length === 1 && metodo === 'GET'){
+      r = erroSb(await c.from('caixa').select('*')
+        .order('data', {ascending:false}).order('id', {ascending:false}));
+      return r.map(function(l){ l.valor = Number(l.valor); return l; });
+    }
+    if (p.length === 1 && metodo === 'POST'){
+      var quem = await meuIntegranteId(c);
+      return erroSb(await c.from('caixa').insert({
+        tipo: corpo.tipo, descricao: corpo.descricao, valor: corpo.valor,
+        data: corpo.data, categoria: corpo.categoria || null,
+        registrado_por: quem, automatico: false
+      }).select().single());
+    }
+    if (p.length === 2 && metodo === 'DELETE'){
+      /* Lançamento automático nasce de uma baixa de mensalidade. Apagar aqui
+         faria o caixa deixar de bater com o financeiro — o certo é estornar. */
+      var lanc = erroSb(await c.from('caixa').select('automatico').eq('id', p[1]).maybeSingle());
+      if (lanc && lanc.automatico){
+        throw new Error('Este lançamento veio de uma mensalidade paga. Para desfazer, use "Estornar" na tela de Mensalidades.');
+      }
+      erroSb(await c.from('caixa').delete().eq('id', p[1]));
+      return {detail:'Lançamento excluído'};
     }
   }
 
@@ -1138,6 +1181,7 @@ var menuItens = [
   {id:'dashboard', label:'Dashboard', perm:'ver_dashboard'},
   {id:'membros', label:'Integrantes', perm:'ver_integrantes'},
   {id:'mensalidades', label:'Mensalidades', perm:'ver_financeiro'},
+  {id:'caixa', label:'Caixa', perm:'ver_financeiro'},
   {id:'eventos', label:'Eventos', perm:'ver_eventos'},
   {id:'comunicados', label:'Comunicados', perm:'ver_comunicados'},
   {id:'documentos', label:'Documentos', perm:'ver_documentos'},
@@ -1199,6 +1243,7 @@ function render(){
   if(state.view==='dashboard') renderDashboard(body);
   else if(state.view==='membros') renderMembros(body);
   else if(state.view==='mensalidades') renderMensalidades(body);
+  else if(state.view==='caixa') renderCaixa(body);
   else if(state.view==='eventos') renderEventos(body);
   else if(state.view==='comunicados') renderComunicados(body);
   else if(state.view==='documentos') renderDocumentos(body);
@@ -1322,7 +1367,8 @@ function filtrarMembros(v){
       '<td>'+(i.nome_completo||'')+'</td>' +
       '<td class="mono" style="color:var(--gold);">'+(i.nome_no_colete||'—')+'</td>' +
       '<td>'+(i.cargo||'')+'</td>' +
-      '<td><span class="status-pill '+(i.status==='Ativo'?'status-ativo':'status-inativo')+'">'+(i.status||'')+'</span></td>' +
+      '<td><span class="status-pill '+classeStatusIntegrante(i.status)+'">'+(i.status||'')+'</span>' +
+        (i.status==='Afastado' && i.afastamento_desde ? '<div style="font-size:10px;color:var(--muted-2);margin-top:3px;">desde '+fmtData(i.afastamento_desde)+'</div>' : '')+'</td>' +
       '<td>'+(i.veiculo_principal||'—')+'</td>' +
       '<td class="mono">'+(i.placa_veiculo||'—')+'</td>' +
       '<td>'+(i.telefone||'—')+'</td>' +
@@ -1333,6 +1379,18 @@ function filtrarMembros(v){
 }
 
 /* id nulo = cadastro novo */
+function classeStatusIntegrante(st){
+  if(st==='Ativo') return 'status-ativo';
+  if(st==='Afastado') return 'status-afastado';
+  return 'status-inativo';
+}
+
+function alternarMotivoAfastamento(){
+  var sel = document.getElementById('ed-status');
+  var bloco = document.getElementById('bloco-afastamento');
+  if(sel && bloco) bloco.style.display = (sel.value === 'Afastado') ? 'block' : 'none';
+}
+
 function abrirModalEditarIntegrante(id){
   var i = id ? (listaIntegrantes().find(function(x){return x.id===id;}) || {}) : {};
   var esc = function(v){ return String(v==null?'':v).replace(/"/g,'&quot;'); };
@@ -1370,10 +1428,20 @@ function abrirModalEditarIntegrante(id){
           '</select></div>' +
           '<div class="campo"><label>Placa</label><input type="text" id="ed-placa" value="'+esc(i.placa_veiculo)+'"></div>' +
         '</div>' +
-        '<div class="campo"><label>Status</label><select id="ed-status">' +
-          '<option'+(i.status!=='Inativo'?' selected':'')+'>Ativo</option>' +
+        '<div class="campo"><label>Status</label><select id="ed-status" onchange="alternarMotivoAfastamento()">' +
+          '<option'+(i.status==='Ativo'?' selected':'')+'>Ativo</option>' +
+          '<option'+(i.status==='Afastado'?' selected':'')+'>Afastado</option>' +
           '<option'+(i.status==='Inativo'?' selected':'')+'>Inativo</option>' +
         '</select></div>' +
+        '<div id="bloco-afastamento" style="display:'+(i.status==='Afastado'?'block':'none')+';">' +
+          '<div class="campo"><label>Motivo do afastamento</label>' +
+            '<input type="text" id="ed-motivo-afast" value="'+esc(i.afastamento_motivo)+'" placeholder="Ex.: saúde, viagem, financeiro"></div>' +
+          '<div style="font-size:11.5px;color:var(--muted);line-height:1.6;background:var(--surface-2);padding:10px 12px;border-radius:8px;margin-bottom:12px;">' +
+            'Ao afastar, as mensalidades <b>em aberto</b> deste integrante são canceladas e ele deixa de ser cobrado nos próximos meses. ' +
+            'As já pagas continuam registradas. Na volta, o período afastado é perdoado.' +
+            (i.afastamento_desde ? '<br><br>Afastado desde <b>'+fmtData(i.afastamento_desde)+'</b>.' : '') +
+          '</div>' +
+        '</div>' +
         (podeVerSensiveis ?
           '<div style="border-top:1px solid var(--border);margin:14px 0 10px;padding-top:12px;">' +
             '<div style="font-size:10.5px;color:var(--gold);letter-spacing:1px;text-transform:uppercase;margin-bottom:8px;">🔒 Dados restritos</div>' +
@@ -1405,6 +1473,11 @@ async function salvarEdicaoIntegrante(id){
     placa_veiculo: (val('ed-placa')||'').toUpperCase(),
     status: val('ed-status')
   };
+  /* Só envia o motivo quando o status é Afastado — o gatilho do banco limpa
+     esses campos sozinho quando a pessoa volta. */
+  if(dados.status === 'Afastado'){
+    dados.afastamento_motivo = val('ed-motivo-afast') || null;
+  }
   if(document.getElementById('ed-endereco')){
     dados.endereco = val('ed-endereco');
     dados.habilitacao_numero = val('ed-cnh');
@@ -1485,18 +1558,35 @@ async function salvarNovoIntegrante(){
 function fecharModal(){ document.getElementById('modal-root').innerHTML=''; }
 
 /* ============ Mensalidades ============ */
+var FORMAS_PAGAMENTO = ['Pix','Dinheiro','Transferência','Cartão'];
+
+function refMesAtual(){ return new Date().toISOString().slice(0,7); }
+
+function rotuloReferencia(ref){
+  if(!ref) return '';
+  var meses = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+  var p = ref.split('-');
+  return (meses[Number(p[1])-1] || p[1]) + '/' + p[0];
+}
+
 async function renderMensalidades(body){
+  var podeEditar = podeFazer('editar_financeiro');
   body.innerHTML =
     '<div class="painel-titulo">Mensalidades</div>' +
-    '<div class="painel-sub">Referência 2026-08</div>' +
+    '<div class="painel-sub">Cobrança de R$ 40,00 por integrante ativo · vencimento dia 10</div>' +
+    '<div class="cards-grid" id="resumo-mensalidades"></div>' +
     '<div class="toolbar">' +
       '<div class="tabs">' +
         '<button class="tab '+(state.mensalidadesFiltro==='todas'?'ativo':'')+'" onclick="filtrarMensalidades(\'todas\')">Todas</button>' +
         '<button class="tab '+(state.mensalidadesFiltro==='pendentes'?'ativo':'')+'" onclick="filtrarMensalidades(\'pendentes\')">Pendentes</button>' +
+        '<button class="tab '+(state.mensalidadesFiltro==='pagas'?'ativo':'')+'" onclick="filtrarMensalidades(\'pagas\')">Pagas</button>' +
+        '<button class="tab '+(state.mensalidadesFiltro==='canceladas'?'ativo':'')+'" onclick="filtrarMensalidades(\'canceladas\')">Canceladas</button>' +
       '</div>' +
+      '<input type="text" id="busca-mensalidades" placeholder="Buscar integrante..." oninput="desenharMensalidades()">' +
+      (podeEditar ? '<button class="btn-primario" onclick="abrirModalGerarMensalidades()">+ Gerar mês</button>' : '') +
     '</div>' +
     '<div class="table-wrap"><table>' +
-      '<thead><tr><th>Integrante</th><th>Referência</th><th>Vencimento</th><th>Valor</th><th>Status</th><th>Forma</th><th></th></tr></thead>' +
+      '<thead><tr><th>Integrante</th><th>Referência</th><th>Vencimento</th><th>Valor</th><th>Status</th><th>Forma</th><th>Pago em</th><th></th></tr></thead>' +
       '<tbody id="tbody-mensalidades"></tbody>' +
     '</table></div>';
 
@@ -1512,36 +1602,369 @@ async function renderMensalidades(body){
 function filtrarMensalidades(f){ state.mensalidadesFiltro = f; renderMensalidades(document.getElementById('view-body')); }
 
 function desenharMensalidades(){
-  var lista = listaMensalidades().filter(function(m){
-    return state.mensalidadesFiltro==='pendentes' ? !m.pago : true;
+  var todas = listaMensalidades();
+  var busca = (document.getElementById('busca-mensalidades') || {}).value || '';
+  var termo = busca.toLowerCase();
+
+  /* Resumo do mês corrente: é o número que a diretoria pergunta na reunião */
+  var ref = refMesAtual();
+  var doMes = todas.filter(function(m){ return m.referencia === ref && !m.cancelada; });
+  var pagasMes = doMes.filter(function(m){ return m.pago; });
+  var arrecadado = pagasMes.reduce(function(s,m){ return s + Number(m.valor||0); }, 0);
+  var aReceber = doMes.filter(function(m){ return !m.pago; })
+                      .reduce(function(s,m){ return s + Number(m.valor||0); }, 0);
+  var pct = doMes.length ? Math.round(pagasMes.length/doMes.length*1000)/10 : 0;
+
+  var resumo = document.getElementById('resumo-mensalidades');
+  if(resumo){
+    resumo.innerHTML =
+      '<div class="card"><div class="card-titulo">Referência '+rotuloReferencia(ref)+'</div>' +
+        '<div class="card-valor">'+pagasMes.length+'/'+doMes.length+'</div>' +
+        '<div class="card-sub">pagas</div>' +
+        '<div class="progress"><div class="progress-chunk" style="width:'+pct+'%"></div></div></div>' +
+      '<div class="card card-financeiro"><div class="card-titulo">Arrecadado no mês</div>' +
+        '<div class="card-valor mono">'+fmtMoeda(arrecadado)+'</div></div>' +
+      '<div class="card"><div class="card-titulo">A receber</div>' +
+        '<div class="card-valor mono" style="color:'+(aReceber>0?'#ff8478':'var(--gold)')+';">'+fmtMoeda(aReceber)+'</div></div>';
+  }
+
+  var lista = todas.filter(function(m){
+    if(state.mensalidadesFiltro==='pendentes')  return !m.pago && !m.cancelada;
+    if(state.mensalidadesFiltro==='pagas')      return m.pago;
+    if(state.mensalidadesFiltro==='canceladas') return m.cancelada;
+    return true;
   });
+  if(termo){
+    lista = lista.filter(function(m){
+      var nome = (m.integrante_nome || integranteNome(m.integrante_id) || '').toLowerCase();
+      return nome.indexOf(termo) > -1;
+    });
+  }
+
+  var podeEditar = podeFazer('editar_financeiro');
+  var hoje = new Date().toISOString().slice(0,10);
   var tbody = document.getElementById('tbody-mensalidades');
+  if(!tbody) return;
   if(lista.length===0){
-    tbody.innerHTML = '<tr><td colspan="7" class="vazio">Nenhuma mensalidade encontrada.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="vazio">' +
+      (todas.length===0 ? 'Nenhuma mensalidade gerada ainda. Use o botão "Gerar mês".' : 'Nenhuma mensalidade neste filtro.') +
+      '</td></tr>';
     return;
   }
+
   tbody.innerHTML = lista.map(function(m){
-    return '<tr>' +
-      '<td>'+integranteNome(m.integrante_id)+'</td>' +
-      '<td class="mono">'+m.referencia+'</td>' +
+    var atrasada = !m.pago && !m.cancelada && m.vencimento < hoje;
+    var status = m.cancelada ? 'Cancelada' : (m.pago ? 'Pago' : (atrasada ? 'Atrasado' : 'Pendente'));
+    var classe = m.cancelada ? 'status-inativo' : (m.pago ? 'status-pago' : 'status-pendente');
+    return '<tr'+(m.cancelada?' style="opacity:0.55;"':'')+'>' +
+      '<td>'+(m.integrante_nome || integranteNome(m.integrante_id))+'</td>' +
+      '<td class="mono">'+rotuloReferencia(m.referencia)+'</td>' +
       '<td>'+fmtData(m.vencimento)+'</td>' +
       '<td class="mono">'+fmtMoeda(m.valor)+'</td>' +
-      '<td><span class="status-pill '+(m.pago?'status-pago':'status-pendente')+'">'+(m.pago?'Pago':'Pendente')+'</span></td>' +
+      '<td><span class="status-pill '+classe+'">'+status+'</span></td>' +
       '<td>'+(m.forma_pagamento||'—')+'</td>' +
-      '<td>'+(m.pago?'':'<button class="acao-link" onclick="marcarPaga('+m.id+')">Marcar como paga</button>')+'</td>' +
+      '<td>'+(m.data_pagamento?fmtData(m.data_pagamento):'—')+'</td>' +
+      '<td>'+(!podeEditar || m.cancelada ? '' :
+        (m.pago
+          ? '<button class="acao-link" style="color:var(--muted);" onclick="estornarPagamento('+m.id+')">Estornar</button>'
+          : '<button class="acao-link" onclick="abrirModalBaixa('+m.id+')">Dar baixa</button>')) +
+      '</td>' +
     '</tr>';
   }).join('');
 }
 
-async function marcarPaga(id){
+/* ---- Baixa de pagamento ---- */
+function abrirModalBaixa(id){
+  var m = listaMensalidades().find(function(x){return x.id===id;});
+  if(!m) return;
+  var hoje = new Date().toISOString().slice(0,10);
+  document.getElementById('modal-root').innerHTML =
+    '<div class="modal-overlay" onclick="if(event.target===this) fecharModal()">' +
+      '<div class="modal">' +
+        '<h3>Registrar pagamento</h3>' +
+        '<div style="font-size:13px;color:var(--muted);margin-bottom:16px;">' +
+          (m.integrante_nome || integranteNome(m.integrante_id)) + ' · ' +
+          rotuloReferencia(m.referencia) + ' · <b style="color:var(--gold);">'+fmtMoeda(m.valor)+'</b>' +
+        '</div>' +
+        '<div class="grid-2">' +
+          '<div class="campo"><label>Forma de pagamento</label><select id="baixa-forma">' +
+            FORMAS_PAGAMENTO.map(function(f){ return '<option>'+f+'</option>'; }).join('') +
+          '</select></div>' +
+          '<div class="campo"><label>Data do pagamento</label><input type="date" id="baixa-data" value="'+hoje+'"></div>' +
+        '</div>' +
+        '<div style="font-size:11.5px;color:var(--muted-2);line-height:1.6;">' +
+          'A entrada correspondente é lançada no caixa automaticamente.' +
+        '</div>' +
+        '<div class="modal-acoes">' +
+          '<button class="btn-secundario" onclick="fecharModal()">Cancelar</button>' +
+          '<button class="btn-entrar" id="btn-confirmar-baixa" style="width:auto;padding:9px 20px;" onclick="confirmarBaixa('+id+')">Confirmar</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+}
+
+async function confirmarBaixa(id){
+  var dados = {
+    forma_pagamento: document.getElementById('baixa-forma').value,
+    data_pagamento:  document.getElementById('baixa-data').value || null
+  };
+  var btn = document.getElementById('btn-confirmar-baixa');
+  if(btn){ btn.disabled = true; btn.textContent = 'Registrando...'; }
+
   if(temBackend()){
-    try{
-      await apiFetch('/mensalidades/'+id+'/pagar', {method:'PATCH', body:JSON.stringify({forma_pagamento:'Pix'})});
-    }catch(e){ alert('Erro ao registrar pagamento: '+e.message); return; }
+    try{ await apiFetch('/mensalidades/'+id+'/pagar', {method:'PATCH', body:JSON.stringify(dados)}); }
+    catch(e){
+      if(btn){ btn.disabled=false; btn.textContent='Confirmar'; }
+      alert('Erro ao registrar pagamento: '+e.message); return;
+    }
   }
   var m = listaMensalidades().find(function(x){return x.id===id;});
-  if(m){ m.pago=true; m.forma_pagamento='Pix'; }
-  desenharMensalidades();
+  if(m){ m.pago=true; m.forma_pagamento=dados.forma_pagamento; m.data_pagamento=dados.data_pagamento; }
+  fecharModal();
+  renderMensalidades(document.getElementById('view-body'));
+}
+
+async function estornarPagamento(id){
+  if(!confirm('Estornar este pagamento? A entrada correspondente será removida do caixa.')) return;
+  if(temBackend()){
+    try{ await apiFetch('/mensalidades/'+id+'/estornar', {method:'POST'}); }
+    catch(e){ alert('Erro ao estornar: '+e.message); return; }
+  }
+  var m = listaMensalidades().find(function(x){return x.id===id;});
+  if(m){ m.pago=false; m.forma_pagamento=null; m.data_pagamento=null; }
+  renderMensalidades(document.getElementById('view-body'));
+}
+
+/* ---- Geração mensal em lote ---- */
+function abrirModalGerarMensalidades(){
+  document.getElementById('modal-root').innerHTML =
+    '<div class="modal-overlay" onclick="if(event.target===this) fecharModal()">' +
+      '<div class="modal">' +
+        '<h3>Gerar mensalidades do mês</h3>' +
+        '<div class="grid-2">' +
+          '<div class="campo"><label>Referência</label><input type="month" id="gerar-ref" value="'+refMesAtual()+'"></div>' +
+          '<div class="campo"><label>Valor (R$)</label><input type="number" id="gerar-valor" value="40" step="0.01" min="0"></div>' +
+        '</div>' +
+        '<div class="campo"><label>Dia do vencimento</label><input type="number" id="gerar-dia" value="10" min="1" max="31"></div>' +
+        '<div style="font-size:11.5px;color:var(--muted);line-height:1.7;border-top:1px solid var(--border);padding-top:12px;">' +
+          'A cobrança é criada apenas para integrantes <b>Ativos</b>. Quem está ' +
+          '<b>Afastado</b> ou <b>Inativo</b> é pulado automaticamente.<br>' +
+          'Rodar de novo no mesmo mês não duplica: quem já tem cobrança é ignorado.' +
+        '</div>' +
+        '<div class="modal-acoes">' +
+          '<button class="btn-secundario" onclick="fecharModal()">Cancelar</button>' +
+          '<button class="btn-entrar" id="btn-gerar" style="width:auto;padding:9px 20px;" onclick="confirmarGerarMensalidades()">Gerar</button>' +
+        '</div>' +
+        '<div id="resultado-geracao"></div>' +
+      '</div>' +
+    '</div>';
+}
+
+async function confirmarGerarMensalidades(){
+  var ref = document.getElementById('gerar-ref').value;
+  if(!ref){ alert('Informe a referência (mês/ano).'); return; }
+  var corpo = {
+    referencia: ref,
+    valor: Number(document.getElementById('gerar-valor').value) || 40,
+    dia_vencimento: Number(document.getElementById('gerar-dia').value) || 10
+  };
+  var btn = document.getElementById('btn-gerar');
+  if(btn){ btn.disabled = true; btn.textContent = 'Gerando...'; }
+
+  if(!temBackend()){
+    if(btn){ btn.disabled=false; btn.textContent='Gerar'; }
+    alert('Modo demonstração: a geração em lote só funciona conectado ao banco.');
+    return;
+  }
+
+  try{
+    var r = await apiFetch('/mensalidades/gerar', {method:'POST', body:JSON.stringify(corpo)});
+    document.getElementById('resultado-geracao').innerHTML =
+      '<div class="credenciais-box">✅ Concluído para ' + rotuloReferencia(ref) + ':' +
+        '<div><b>'+(r.criadas||0)+'</b> cobrança(s) criada(s)</div>' +
+        (r.ja_existiam ? '<div><b>'+r.ja_existiam+'</b> já existiam (não duplicadas)</div>' : '') +
+        (r.pulados_afastados ? '<div><b>'+r.pulados_afastados+'</b> afastado(s) pulado(s)</div>' : '') +
+      '</div>';
+    if(btn){ btn.textContent = 'Gerar'; btn.disabled = false; }
+    mensalidadesAtuais = await apiFetch('/mensalidades');
+    desenharMensalidades();
+  }catch(e){
+    if(btn){ btn.disabled=false; btn.textContent='Gerar'; }
+    alert('Erro ao gerar: '+e.message);
+  }
+}
+
+/* ============ Caixa ============ */
+var CATEGORIAS_SAIDA = ['Sede','Eventos','Manutenção','Uniformes','Doações','Combustível','Outros'];
+var caixaFiltro = 'todos';
+var lancamentosCaixa = [];
+
+async function renderCaixa(body){
+  var podeEditar = podeFazer('editar_financeiro');
+  body.innerHTML =
+    '<div class="painel-titulo">Caixa</div>' +
+    '<div class="painel-sub">Entradas e saídas do M.C. · o saldo é a soma de tudo que passou pelo caixa</div>' +
+    '<div class="cards-grid" id="resumo-caixa"></div>' +
+    '<div class="toolbar">' +
+      '<div class="tabs">' +
+        '<button class="tab '+(caixaFiltro==='todos'?'ativo':'')+'" onclick="filtrarCaixa(\'todos\')">Tudo</button>' +
+        '<button class="tab '+(caixaFiltro==='entradas'?'ativo':'')+'" onclick="filtrarCaixa(\'entradas\')">Entradas</button>' +
+        '<button class="tab '+(caixaFiltro==='saidas'?'ativo':'')+'" onclick="filtrarCaixa(\'saidas\')">Saídas</button>' +
+      '</div>' +
+      (podeEditar ? '<button class="btn-primario" onclick="abrirModalLancamento()">+ Lançar saída</button>' : '') +
+    '</div>' +
+    '<div class="table-wrap"><table>' +
+      '<thead><tr><th>Data</th><th>Descrição</th><th>Categoria</th><th>Entrada</th><th>Saída</th><th></th></tr></thead>' +
+      '<tbody id="tbody-caixa"></tbody>' +
+    '</table></div>' +
+    '<div id="resumo-categorias" style="margin-top:22px;"></div>';
+
+  lancamentosCaixa = [];
+  if(temBackend()){
+    try{ lancamentosCaixa = await apiFetch('/caixa'); }catch(e){}
+  }
+  desenharCaixa();
+}
+
+function filtrarCaixa(f){ caixaFiltro = f; renderCaixa(document.getElementById('view-body')); }
+
+function desenharCaixa(){
+  var todos = lancamentosCaixa;
+  var entradas = todos.filter(function(l){ return l.tipo==='Entrada'; })
+                      .reduce(function(s,l){ return s+Number(l.valor||0); },0);
+  var saidas   = todos.filter(function(l){ return l.tipo==='Saída'; })
+                      .reduce(function(s,l){ return s+Number(l.valor||0); },0);
+  var saldo = entradas - saidas;
+
+  var resumo = document.getElementById('resumo-caixa');
+  if(resumo){
+    resumo.innerHTML =
+      '<div class="card"><div class="card-titulo">Total de entradas</div>' +
+        '<div class="card-valor mono" style="color:var(--success);">'+fmtMoeda(entradas)+'</div></div>' +
+      '<div class="card card-financeiro"><div class="card-titulo">Total de saídas</div>' +
+        '<div class="card-valor mono" style="color:#ff8478;">'+fmtMoeda(saidas)+'</div></div>' +
+      '<div class="card"><div class="card-titulo">Saldo em caixa</div>' +
+        '<div class="card-valor mono" style="color:'+(saldo<0?'#ff8478':'var(--gold)')+';">'+fmtMoeda(saldo)+'</div>' +
+        (saldo<0 ? '<div class="card-sub" style="color:#ff8478;">Saldo negativo</div>' : '') +
+      '</div>';
+  }
+
+  var lista = todos.filter(function(l){
+    if(caixaFiltro==='entradas') return l.tipo==='Entrada';
+    if(caixaFiltro==='saidas')   return l.tipo==='Saída';
+    return true;
+  });
+
+  var podeEditar = podeFazer('editar_financeiro');
+  var tbody = document.getElementById('tbody-caixa');
+  if(!tbody) return;
+  if(lista.length===0){
+    tbody.innerHTML = '<tr><td colspan="6" class="vazio">' +
+      (todos.length===0 ? 'Nenhum lançamento ainda. As entradas aparecem sozinhas quando uma mensalidade é paga.' : 'Nenhum lançamento neste filtro.') +
+      '</td></tr>';
+  } else {
+    tbody.innerHTML = lista.map(function(l){
+      var ehEntrada = l.tipo==='Entrada';
+      return '<tr>' +
+        '<td>'+fmtData(l.data)+'</td>' +
+        '<td>'+l.descricao +
+          (l.automatico ? ' <span style="font-size:10px;color:var(--muted-2);">(automático)</span>' : '') +
+        '</td>' +
+        '<td>'+(l.categoria||'—')+'</td>' +
+        '<td class="mono" style="color:var(--success);">'+(ehEntrada?fmtMoeda(l.valor):'')+'</td>' +
+        '<td class="mono" style="color:#ff8478;">'+(!ehEntrada?fmtMoeda(l.valor):'')+'</td>' +
+        '<td>'+(podeEditar && !l.automatico
+          ? '<button class="acao-link" style="color:var(--danger);" onclick="excluirLancamento('+l.id+')">Excluir</button>'
+          : '')+'</td>' +
+      '</tr>';
+    }).join('');
+  }
+
+  /* Saídas por categoria: mostra para onde o dinheiro do clube está indo */
+  var porCat = {};
+  todos.filter(function(l){ return l.tipo==='Saída'; }).forEach(function(l){
+    var k = l.categoria || 'Sem categoria';
+    porCat[k] = (porCat[k]||0) + Number(l.valor||0);
+  });
+  var chaves = Object.keys(porCat).sort(function(a,b){ return porCat[b]-porCat[a]; });
+  var alvo = document.getElementById('resumo-categorias');
+  if(alvo){
+    alvo.innerHTML = chaves.length === 0 ? '' :
+      '<div class="painel-titulo" style="font-size:15px;">Saídas por categoria</div>' +
+      '<div class="table-wrap" style="margin-top:10px;"><table><tbody>' +
+      chaves.map(function(k){
+        var pct = saidas ? Math.round(porCat[k]/saidas*100) : 0;
+        return '<tr><td style="width:40%;">'+k+'</td>' +
+          '<td class="mono">'+fmtMoeda(porCat[k])+'</td>' +
+          '<td><div class="progress" style="margin:0;"><div class="progress-chunk" style="width:'+pct+'%;background:var(--vermelho);"></div></div></td>' +
+          '<td class="mono" style="width:60px;text-align:right;">'+pct+'%</td></tr>';
+      }).join('') + '</tbody></table></div>';
+  }
+}
+
+function abrirModalLancamento(){
+  var hoje = new Date().toISOString().slice(0,10);
+  document.getElementById('modal-root').innerHTML =
+    '<div class="modal-overlay" onclick="if(event.target===this) fecharModal()">' +
+      '<div class="modal">' +
+        '<h3>Lançar no caixa</h3>' +
+        '<div class="grid-2">' +
+          '<div class="campo"><label>Tipo</label><select id="lanc-tipo">' +
+            '<option>Saída</option><option>Entrada</option></select></div>' +
+          '<div class="campo"><label>Valor (R$)</label><input type="number" id="lanc-valor" step="0.01" min="0" placeholder="0,00"></div>' +
+        '</div>' +
+        '<div class="campo"><label>Descrição</label><input type="text" id="lanc-desc" placeholder="Ex.: Aluguel da sede - agosto"></div>' +
+        '<div class="grid-2">' +
+          '<div class="campo"><label>Categoria</label><select id="lanc-cat">' +
+            CATEGORIAS_SAIDA.map(function(c){ return '<option>'+c+'</option>'; }).join('') +
+          '</select></div>' +
+          '<div class="campo"><label>Data</label><input type="date" id="lanc-data" value="'+hoje+'"></div>' +
+        '</div>' +
+        '<div style="font-size:11.5px;color:var(--muted-2);line-height:1.6;">' +
+          'Entradas de mensalidade são lançadas sozinhas — use esta tela para as demais movimentações.' +
+        '</div>' +
+        '<div class="modal-acoes">' +
+          '<button class="btn-secundario" onclick="fecharModal()">Cancelar</button>' +
+          '<button class="btn-entrar" id="btn-lancar" style="width:auto;padding:9px 20px;" onclick="salvarLancamento()">Lançar</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+}
+
+async function salvarLancamento(){
+  var valor = Number(document.getElementById('lanc-valor').value);
+  var dados = {
+    tipo: document.getElementById('lanc-tipo').value,
+    descricao: document.getElementById('lanc-desc').value.trim(),
+    valor: valor,
+    categoria: document.getElementById('lanc-cat').value,
+    data: document.getElementById('lanc-data').value
+  };
+  if(!dados.descricao){ alert('Descreva o lançamento.'); return; }
+  if(!(valor > 0)){ alert('Informe um valor maior que zero.'); return; }
+  if(!dados.data){ alert('Informe a data.'); return; }
+
+  if(!temBackend()){
+    alert('Modo demonstração: o caixa só funciona conectado ao banco.');
+    return;
+  }
+  var btn = document.getElementById('btn-lancar');
+  if(btn){ btn.disabled = true; btn.textContent = 'Lançando...'; }
+  try{
+    await apiFetch('/caixa', {method:'POST', body:JSON.stringify(dados)});
+  }catch(e){
+    if(btn){ btn.disabled=false; btn.textContent='Lançar'; }
+    alert('Erro ao lançar: '+e.message); return;
+  }
+  fecharModal();
+  renderCaixa(document.getElementById('view-body'));
+}
+
+async function excluirLancamento(id){
+  if(!confirm('Excluir este lançamento do caixa?')) return;
+  try{ await apiFetch('/caixa/'+id, {method:'DELETE'}); }
+  catch(e){ alert(e.message); return; }
+  renderCaixa(document.getElementById('view-body'));
 }
 
 /* ============ Eventos ============ */
