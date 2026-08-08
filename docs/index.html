@@ -406,7 +406,7 @@ var state = {
   screen:'publico',
   view:'dashboard',
   token:null, cargo:null, nome:null,
-  permissoes:[],
+  permissoes:[], integranteId:null,
   backend:'supabase',   // 'supabase' | 'api' | 'demo'
   apiBase:'',
   membrosFiltro:'',
@@ -632,6 +632,48 @@ async function enviarImagem(arquivo, bucket){
 
 /* Mantido para não quebrar chamadas existentes */
 async function enviarImagemComunicado(arquivo){ return enviarImagem(arquivo, 'comunicados'); }
+
+/* ---- Comprovantes de pagamento (bucket PRIVADO) ---- */
+/* Comprovante de Pix mostra nome, banco e às vezes parte do CPF. Por isso o
+   arquivo não é público: cada visualização gera um link temporário. */
+async function enviarComprovante(arquivo, integranteId){
+  var c = clienteSupabase();
+  if (!c) throw new Error('Sem conexão com o banco.');
+
+  var ehImagem = /^image\//.test(arquivo.type);
+  var ehPdf = arquivo.type === 'application/pdf';
+  if (!ehImagem && !ehPdf){
+    throw new Error('Envie uma imagem (print) ou um PDF do comprovante.');
+  }
+  if (arquivo.size > TAMANHO_MAX_IMAGEM_MB * 1024 * 1024){
+    throw new Error('O arquivo tem ' + (arquivo.size/1048576).toFixed(1) +
+                    'MB. O limite é ' + TAMANHO_MAX_IMAGEM_MB + 'MB.');
+  }
+
+  var ext = (arquivo.name.split('.').pop() || (ehPdf?'pdf':'jpg')).toLowerCase().replace(/[^a-z0-9]/g,'');
+  /* A pasta é o id do integrante: é assim que a regra de segurança do banco
+     identifica de quem é o arquivo, sem precisar de consulta extra. */
+  var caminho = integranteId + '/' + Date.now() + '-' + Math.random().toString(36).slice(2,8) + '.' + ext;
+
+  var envio = await c.storage.from('comprovantes')
+    .upload(caminho, arquivo, {contentType: arquivo.type, upsert: false});
+  if (envio.error) throw new Error('Falha ao enviar o comprovante: ' + envio.error.message);
+  return caminho;
+}
+
+async function abrirComprovante(caminho){
+  var c = clienteSupabase();
+  if (!c){ alert('Sem conexão com o banco.'); return; }
+  try{
+    /* Link válido por 5 minutos — tempo de conferir, sem deixar o arquivo
+       acessível para sempre a quem copiar a URL. */
+    var r = await c.storage.from('comprovantes').createSignedUrl(caminho, 300);
+    if (r.error) throw new Error(r.error.message);
+    var url = r.data.signedUrl;
+    if (/\.pdf$/i.test(caminho)) window.open(url, '_blank');
+    else ampliarImagem(url);
+  }catch(e){ alert('Não foi possível abrir o comprovante: ' + e.message); }
+}
 /* Existe um backend real (Supabase ou API própria)? Se não, é demonstração.
    Sem isso, telas ficariam mostrando dados fictícios mesmo conectadas. */
 function temBackend(){ return usandoSupabase() || !!state.apiBase; }
@@ -756,6 +798,26 @@ async function supabaseFetch(path, metodo, corpo){
     if (p.length === 3 && p[2] === 'estornar'){
       erroSb(await c.rpc('estornar_pagamento', {p_mensalidade_id: Number(p[1])}));
       return {detail:'Pagamento estornado'};
+    }
+    if (p.length === 3 && p[2] === 'comprovante'){
+      erroSb(await c.rpc('anexar_comprovante', {
+        p_mensalidade_id: Number(p[1]), p_caminho: corpo.caminho
+      }));
+      return {detail:'Comprovante enviado'};
+    }
+    if (p.length === 3 && p[2] === 'confirmar'){
+      erroSb(await c.rpc('confirmar_pagamento', {
+        p_mensalidade_id: Number(p[1]),
+        p_forma: corpo.forma_pagamento || 'Pix',
+        p_data: corpo.data_pagamento || null
+      }));
+      return {detail:'Pagamento confirmado'};
+    }
+    if (p.length === 3 && p[2] === 'recusar'){
+      erroSb(await c.rpc('recusar_comprovante', {
+        p_mensalidade_id: Number(p[1]), p_motivo: corpo.motivo
+      }));
+      return {detail:'Comprovante recusado'};
     }
   }
 
@@ -974,6 +1036,7 @@ async function montarPerfil(c, usuario){
     login: usuario.email,
     nome: perfil.integrante ? perfil.integrante.nome_completo : usuario.email,
     cargo: perfil.cargo,
+    integrante_id: perfil.integrante_id,
     permissoes: permissoesEfetivas(perfil.cargo, perfil.permissoes_customizadas || {})
   };
 }
@@ -1099,6 +1162,7 @@ async function handleLogin(ev){
       var perfil = await apiFetch('/auth/me');
       state.token='supabase'; state.cargo=perfil.cargo; state.nome=perfil.nome;
       state.permissoes = perfil.permissoes || [];
+      state.integranteId = perfil.integrante_id || null;
       state.screen='app'; state.view='dashboard';
       render();
     }catch(e){
@@ -1579,6 +1643,7 @@ async function renderMensalidades(body){
       '<div class="tabs">' +
         '<button class="tab '+(state.mensalidadesFiltro==='todas'?'ativo':'')+'" onclick="filtrarMensalidades(\'todas\')">Todas</button>' +
         '<button class="tab '+(state.mensalidadesFiltro==='pendentes'?'ativo':'')+'" onclick="filtrarMensalidades(\'pendentes\')">Pendentes</button>' +
+        (podeEditar ? '<button class="tab '+(state.mensalidadesFiltro==='conferir'?'ativo':'')+'" onclick="filtrarMensalidades(\'conferir\')">A conferir</button>' : '') +
         '<button class="tab '+(state.mensalidadesFiltro==='pagas'?'ativo':'')+'" onclick="filtrarMensalidades(\'pagas\')">Pagas</button>' +
         '<button class="tab '+(state.mensalidadesFiltro==='canceladas'?'ativo':'')+'" onclick="filtrarMensalidades(\'canceladas\')">Canceladas</button>' +
       '</div>' +
@@ -1601,6 +1666,23 @@ async function renderMensalidades(body){
 
 function filtrarMensalidades(f){ state.mensalidadesFiltro = f; renderMensalidades(document.getElementById('view-body')); }
 
+function situacaoMensalidade(m){
+  var hoje = new Date().toISOString().slice(0,10);
+  if(m.cancelada) return 'Cancelada';
+  if(m.pago) return 'Pago';
+  if(m.comprovante_path && !m.recusado_em) return 'Aguardando confirmação';
+  if(m.recusado_em) return 'Comprovante recusado';
+  if(m.vencimento < hoje) return 'Atrasado';
+  return 'Pendente';
+}
+
+function classeSituacao(s){
+  if(s==='Pago') return 'status-pago';
+  if(s==='Cancelada') return 'status-inativo';
+  if(s==='Aguardando confirmação') return 'status-afastado';
+  return 'status-pendente';
+}
+
 function desenharMensalidades(){
   var todas = listaMensalidades();
   var busca = (document.getElementById('busca-mensalidades') || {}).value || '';
@@ -1614,6 +1696,7 @@ function desenharMensalidades(){
   var aReceber = doMes.filter(function(m){ return !m.pago; })
                       .reduce(function(s,m){ return s + Number(m.valor||0); }, 0);
   var pct = doMes.length ? Math.round(pagasMes.length/doMes.length*1000)/10 : 0;
+  var aguardando = todas.filter(function(m){ return situacaoMensalidade(m)==='Aguardando confirmação'; }).length;
 
   var resumo = document.getElementById('resumo-mensalidades');
   if(resumo){
@@ -1625,11 +1708,19 @@ function desenharMensalidades(){
       '<div class="card card-financeiro"><div class="card-titulo">Arrecadado no mês</div>' +
         '<div class="card-valor mono">'+fmtMoeda(arrecadado)+'</div></div>' +
       '<div class="card"><div class="card-titulo">A receber</div>' +
-        '<div class="card-valor mono" style="color:'+(aReceber>0?'#ff8478':'var(--gold)')+';">'+fmtMoeda(aReceber)+'</div></div>';
+        '<div class="card-valor mono" style="color:'+(aReceber>0?'#ff8478':'var(--gold)')+';">'+fmtMoeda(aReceber)+'</div></div>' +
+      (podeFazer('editar_financeiro') ?
+        '<div class="card" style="'+(aguardando?'border-color:var(--gold);':'')+'">' +
+          '<div class="card-titulo">Aguardando conferência</div>' +
+          '<div class="card-valor">'+aguardando+'</div>' +
+          '<div class="card-sub">'+(aguardando?'comprovante(s) para conferir':'nada pendente')+'</div></div>'
+        : '');
   }
 
   var lista = todas.filter(function(m){
+    var s = situacaoMensalidade(m);
     if(state.mensalidadesFiltro==='pendentes')  return !m.pago && !m.cancelada;
+    if(state.mensalidadesFiltro==='conferir')   return s==='Aguardando confirmação';
     if(state.mensalidadesFiltro==='pagas')      return m.pago;
     if(state.mensalidadesFiltro==='canceladas') return m.cancelada;
     return true;
@@ -1642,50 +1733,136 @@ function desenharMensalidades(){
   }
 
   var podeEditar = podeFazer('editar_financeiro');
-  var hoje = new Date().toISOString().slice(0,10);
+  var meuId = state.integranteId;
   var tbody = document.getElementById('tbody-mensalidades');
   if(!tbody) return;
   if(lista.length===0){
     tbody.innerHTML = '<tr><td colspan="8" class="vazio">' +
-      (todas.length===0 ? 'Nenhuma mensalidade gerada ainda. Use o botão "Gerar mês".' : 'Nenhuma mensalidade neste filtro.') +
+      (todas.length===0 ? 'Nenhuma mensalidade gerada ainda.' : 'Nenhuma mensalidade neste filtro.') +
       '</td></tr>';
     return;
   }
 
   tbody.innerHTML = lista.map(function(m){
-    var atrasada = !m.pago && !m.cancelada && m.vencimento < hoje;
-    var status = m.cancelada ? 'Cancelada' : (m.pago ? 'Pago' : (atrasada ? 'Atrasado' : 'Pendente'));
-    var classe = m.cancelada ? 'status-inativo' : (m.pago ? 'status-pago' : 'status-pendente');
+    var s = situacaoMensalidade(m);
+    var minha = meuId && m.integrante_id === meuId;
+    var acoes = '';
+
+    if(m.cancelada){
+      acoes = '';
+    } else if(podeEditar){
+      if(m.pago){
+        acoes = '<button class="acao-link" style="color:var(--muted);" onclick="estornarPagamento('+m.id+')">Estornar</button>';
+      } else if(s==='Aguardando confirmação'){
+        acoes =
+          '<button class="acao-link" onclick="abrirComprovante(\''+(m.comprovante_path||'')+'\')">Ver</button> ' +
+          '<button class="acao-link" style="color:var(--success);" onclick="abrirModalBaixa('+m.id+', true)">Confirmar</button> ' +
+          '<button class="acao-link" style="color:var(--danger);" onclick="recusarComprovante('+m.id+')">Recusar</button>';
+      } else {
+        acoes = '<button class="acao-link" onclick="abrirModalBaixa('+m.id+')">Dar baixa</button>';
+      }
+    } else if(minha && !m.pago){
+      acoes = '<button class="acao-link" onclick="abrirModalComprovante('+m.id+')">' +
+              (m.comprovante_path ? 'Reenviar comprovante' : 'Enviar comprovante') + '</button>';
+    }
+
     return '<tr'+(m.cancelada?' style="opacity:0.55;"':'')+'>' +
       '<td>'+(m.integrante_nome || integranteNome(m.integrante_id))+'</td>' +
       '<td class="mono">'+rotuloReferencia(m.referencia)+'</td>' +
       '<td>'+fmtData(m.vencimento)+'</td>' +
       '<td class="mono">'+fmtMoeda(m.valor)+'</td>' +
-      '<td><span class="status-pill '+classe+'">'+status+'</span></td>' +
+      '<td><span class="status-pill '+classeSituacao(s)+'">'+s+'</span>' +
+        (m.motivo_recusa ? '<div style="font-size:10px;color:#ff8478;margin-top:3px;">'+m.motivo_recusa+'</div>' : '') +
+      '</td>' +
       '<td>'+(m.forma_pagamento||'—')+'</td>' +
       '<td>'+(m.data_pagamento?fmtData(m.data_pagamento):'—')+'</td>' +
-      '<td>'+(!podeEditar || m.cancelada ? '' :
-        (m.pago
-          ? '<button class="acao-link" style="color:var(--muted);" onclick="estornarPagamento('+m.id+')">Estornar</button>'
-          : '<button class="acao-link" onclick="abrirModalBaixa('+m.id+')">Dar baixa</button>')) +
-      '</td>' +
+      '<td style="white-space:nowrap;">'+acoes+'</td>' +
     '</tr>';
   }).join('');
 }
 
+/* ---- Comprovante enviado pelo integrante ---- */
+function abrirModalComprovante(id){
+  var m = listaMensalidades().find(function(x){return x.id===id;});
+  if(!m) return;
+  document.getElementById('modal-root').innerHTML =
+    '<div class="modal-overlay" onclick="if(event.target===this) fecharModal()">' +
+      '<div class="modal">' +
+        '<h3>Enviar comprovante</h3>' +
+        '<div style="font-size:13px;color:var(--muted);margin-bottom:16px;">' +
+          rotuloReferencia(m.referencia) + ' · <b style="color:var(--gold);">'+fmtMoeda(m.valor)+'</b>' +
+        '</div>' +
+        (m.motivo_recusa ?
+          '<div style="background:rgba(139,30,30,0.25);border:1px solid var(--vermelho);border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:12.5px;color:#ff8478;">' +
+            '<b>Comprovante anterior recusado:</b><br>'+m.motivo_recusa +
+          '</div>' : '') +
+        '<div class="campo">' +
+          '<label>Comprovante (print ou PDF, até ' + TAMANHO_MAX_IMAGEM_MB + 'MB)</label>' +
+          '<input type="file" id="comprov-arquivo" accept="image/*,application/pdf" style="padding:8px;" onchange="previewImagem(this, \'preview-comprov\', \'comprov-arquivo\')">' +
+          '<div id="preview-comprov"></div>' +
+        '</div>' +
+        '<div style="font-size:11.5px;color:var(--muted);line-height:1.7;border-top:1px solid var(--border);padding-top:12px;">' +
+          'O envio <b>não quita</b> a mensalidade automaticamente: o Tesoureiro confere ' +
+          'o comprovante e confirma. Você acompanha a situação por esta tela.' +
+        '</div>' +
+        '<div class="modal-acoes">' +
+          '<button class="btn-secundario" onclick="fecharModal()">Cancelar</button>' +
+          '<button class="btn-entrar" id="btn-env-comprov" style="width:auto;padding:9px 20px;" onclick="enviarMeuComprovante('+id+')">Enviar</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+}
+
+async function enviarMeuComprovante(id){
+  var input = document.getElementById('comprov-arquivo');
+  var arquivo = input && input.files ? input.files[0] : null;
+  if(!arquivo){ alert('Selecione o comprovante.'); return; }
+  if(!usandoSupabase()){ alert('Esta função só funciona conectada ao banco.'); return; }
+
+  var m = listaMensalidades().find(function(x){return x.id===id;});
+  var dono = (m && m.integrante_id) || state.integranteId;
+  var btn = document.getElementById('btn-env-comprov');
+  if(btn){ btn.disabled = true; btn.textContent = 'Enviando...'; }
+
+  try{
+    var caminho = await enviarComprovante(arquivo, dono);
+    await apiFetch('/mensalidades/'+id+'/comprovante', {method:'POST', body:JSON.stringify({caminho:caminho})});
+  }catch(e){
+    if(btn){ btn.disabled=false; btn.textContent='Enviar'; }
+    alert('Erro ao enviar: '+e.message); return;
+  }
+  fecharModal();
+  renderMensalidades(document.getElementById('view-body'));
+}
+
+async function recusarComprovante(id){
+  var motivo = prompt('Motivo da recusa (o integrante verá esta mensagem):\n\nEx.: Pix não caiu, valor divergente, comprovante de outro mês');
+  if(motivo === null) return;
+  if(!motivo.trim()){ alert('Informe o motivo da recusa.'); return; }
+  try{
+    await apiFetch('/mensalidades/'+id+'/recusar', {method:'POST', body:JSON.stringify({motivo:motivo.trim()})});
+  }catch(e){ alert('Erro ao recusar: '+e.message); return; }
+  renderMensalidades(document.getElementById('view-body'));
+}
+
 /* ---- Baixa de pagamento ---- */
-function abrirModalBaixa(id){
+function abrirModalBaixa(id, ehConfirmacao){
   var m = listaMensalidades().find(function(x){return x.id===id;});
   if(!m) return;
   var hoje = new Date().toISOString().slice(0,10);
   document.getElementById('modal-root').innerHTML =
     '<div class="modal-overlay" onclick="if(event.target===this) fecharModal()">' +
       '<div class="modal">' +
-        '<h3>Registrar pagamento</h3>' +
+        '<h3>'+(ehConfirmacao ? 'Confirmar pagamento' : 'Registrar pagamento')+'</h3>' +
         '<div style="font-size:13px;color:var(--muted);margin-bottom:16px;">' +
           (m.integrante_nome || integranteNome(m.integrante_id)) + ' · ' +
           rotuloReferencia(m.referencia) + ' · <b style="color:var(--gold);">'+fmtMoeda(m.valor)+'</b>' +
         '</div>' +
+        (ehConfirmacao && m.comprovante_path ?
+          '<div style="margin-bottom:14px;">' +
+            '<button class="btn-secundario" style="width:100%;" onclick="abrirComprovante(\''+m.comprovante_path+'\')">📎 Ver comprovante enviado</button>' +
+            '<div style="font-size:11px;color:var(--muted-2);margin-top:6px;">Enviado em '+fmtDataHora(m.comprovante_enviado_em)+'</div>' +
+          '</div>' : '') +
         '<div class="grid-2">' +
           '<div class="campo"><label>Forma de pagamento</label><select id="baixa-forma">' +
             FORMAS_PAGAMENTO.map(function(f){ return '<option>'+f+'</option>'; }).join('') +
@@ -1697,13 +1874,13 @@ function abrirModalBaixa(id){
         '</div>' +
         '<div class="modal-acoes">' +
           '<button class="btn-secundario" onclick="fecharModal()">Cancelar</button>' +
-          '<button class="btn-entrar" id="btn-confirmar-baixa" style="width:auto;padding:9px 20px;" onclick="confirmarBaixa('+id+')">Confirmar</button>' +
+          '<button class="btn-entrar" id="btn-confirmar-baixa" style="width:auto;padding:9px 20px;" onclick="confirmarBaixa('+id+', '+(ehConfirmacao?'true':'false')+')">Confirmar</button>' +
         '</div>' +
       '</div>' +
     '</div>';
 }
 
-async function confirmarBaixa(id){
+async function confirmarBaixa(id, ehConfirmacao){
   var dados = {
     forma_pagamento: document.getElementById('baixa-forma').value,
     data_pagamento:  document.getElementById('baixa-data').value || null
@@ -1711,8 +1888,13 @@ async function confirmarBaixa(id){
   var btn = document.getElementById('btn-confirmar-baixa');
   if(btn){ btn.disabled = true; btn.textContent = 'Registrando...'; }
 
+  /* Confirmação de comprovante usa rota própria: além de dar baixa, registra
+     quem conferiu e limpa uma eventual recusa anterior. */
+  var rota = ehConfirmacao ? '/mensalidades/'+id+'/confirmar' : '/mensalidades/'+id+'/pagar';
+  var metodo = ehConfirmacao ? 'POST' : 'PATCH';
+
   if(temBackend()){
-    try{ await apiFetch('/mensalidades/'+id+'/pagar', {method:'PATCH', body:JSON.stringify(dados)}); }
+    try{ await apiFetch(rota, {method:metodo, body:JSON.stringify(dados)}); }
     catch(e){
       if(btn){ btn.disabled=false; btn.textContent='Confirmar'; }
       alert('Erro ao registrar pagamento: '+e.message); return;
@@ -2923,6 +3105,7 @@ async function retomarSessao(){
           var perfil = await apiFetch('/auth/me');
           state.token='supabase'; state.cargo=perfil.cargo; state.nome=perfil.nome;
           state.permissoes = perfil.permissoes || [];
+          state.integranteId = perfil.integrante_id || null;
           state.screen='app'; state.view='dashboard';
         }
       }catch(e){ /* sessão inválida ou perfil não liberado: vai para a tela pública */ }

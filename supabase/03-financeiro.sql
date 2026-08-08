@@ -151,3 +151,112 @@ create or replace view public.vw_extrato_caixa with (security_invoker = true) as
          sum(case when c.tipo = 'Entrada' then c.valor else -c.valor end)
            over (order by c.data, c.id rows between unbounded preceding and current row) as saldo_acumulado
     from public.caixa c;
+
+-- ============================================================================
+-- COMPROVANTE DE PAGAMENTO
+-- ============================================================================
+-- Quem envia o comprovante é a mesma pessoa que se beneficia dele. Por isso o
+-- anexo NÃO dá baixa: cria um estado intermediário que só o financeiro confirma.
+-- Assim o caixa nunca recebe dinheiro que ninguém conferiu.
+-- ============================================================================
+alter table public.mensalidades
+  add column if not exists comprovante_path       text,
+  add column if not exists comprovante_enviado_em timestamptz,
+  add column if not exists confirmado_por         bigint references public.integrantes(id) on delete set null,
+  add column if not exists recusado_em            timestamptz,
+  add column if not exists motivo_recusa          text;
+
+create or replace function public.situacao_mensalidade(m public.mensalidades)
+returns text language sql immutable as $$
+  select case
+    when m.cancelada then 'Cancelada'
+    when m.pago then 'Pago'
+    when m.comprovante_path is not null and m.recusado_em is null then 'Aguardando confirmação'
+    when m.recusado_em is not null then 'Comprovante recusado'
+    when m.vencimento < current_date then 'Atrasado'
+    else 'Pendente'
+  end;
+$$;
+
+-- Bucket PRIVADO: comprovante de Pix mostra nome, banco e às vezes parte do CPF.
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('comprovantes', 'comprovantes', false, 5242880,
+        array['image/jpeg','image/png','image/webp','application/pdf'])
+on conflict (id) do update set public = false, file_size_limit = 5242880;
+
+-- O arquivo mora na pasta <integrante_id>/: é assim que a regra identifica o dono.
+drop policy if exists comprov_ler on storage.objects;
+create policy comprov_ler on storage.objects for select to authenticated
+  using (bucket_id = 'comprovantes' and (
+    public.tem_permissao('ver_financeiro')
+    or (storage.foldername(name))[1] = public.meu_integrante_id()::text));
+
+drop policy if exists comprov_enviar on storage.objects;
+create policy comprov_enviar on storage.objects for insert to authenticated
+  with check (bucket_id = 'comprovantes' and (
+    public.tem_permissao('editar_financeiro')
+    or (storage.foldername(name))[1] = public.meu_integrante_id()::text));
+
+drop policy if exists comprov_atualizar on storage.objects;
+create policy comprov_atualizar on storage.objects for update to authenticated
+  using (bucket_id = 'comprovantes' and (
+    public.tem_permissao('editar_financeiro')
+    or (storage.foldername(name))[1] = public.meu_integrante_id()::text));
+
+drop policy if exists comprov_excluir on storage.objects;
+create policy comprov_excluir on storage.objects for delete to authenticated
+  using (bucket_id = 'comprovantes' and public.tem_permissao('editar_financeiro'));
+
+-- SECURITY DEFINER porque o integrante comum não pode alterar mensalidades:
+-- a função libera exatamente uma coisa — anexar na PRÓPRIA cobrança em aberto.
+create or replace function public.anexar_comprovante(p_mensalidade_id bigint, p_caminho text)
+returns void language plpgsql security definer set search_path = public as $$
+declare v_meu bigint; v_dono bigint; v_pago boolean; v_cancelada boolean;
+begin
+  v_meu := public.meu_integrante_id();
+  if v_meu is null then raise exception 'Sua conta ainda não está ligada a um integrante'; end if;
+  select integrante_id, pago, cancelada into v_dono, v_pago, v_cancelada
+    from public.mensalidades where id = p_mensalidade_id;
+  if v_dono is null then raise exception 'Mensalidade não encontrada'; end if;
+  if v_dono <> v_meu and not public.tem_permissao('editar_financeiro') then
+    raise exception 'Você só pode enviar comprovante da sua própria mensalidade';
+  end if;
+  if v_pago then raise exception 'Esta mensalidade já está paga'; end if;
+  if v_cancelada then raise exception 'Esta mensalidade está cancelada'; end if;
+  update public.mensalidades
+     set comprovante_path = p_caminho, comprovante_enviado_em = now(),
+         recusado_em = null, motivo_recusa = null   -- reenvio limpa a recusa
+   where id = p_mensalidade_id;
+end $$;
+
+create or replace function public.confirmar_pagamento(
+  p_mensalidade_id bigint, p_forma text default 'Pix', p_data date default null)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if not public.tem_permissao('editar_financeiro') then
+    raise exception 'Você não tem permissão para confirmar pagamentos';
+  end if;
+  update public.mensalidades
+     set pago = true, data_pagamento = coalesce(p_data, current_date),
+         forma_pagamento = p_forma, confirmado_por = public.meu_integrante_id(),
+         recusado_em = null, motivo_recusa = null
+   where id = p_mensalidade_id and not pago and not cancelada;
+end $$;
+
+create or replace function public.recusar_comprovante(p_mensalidade_id bigint, p_motivo text)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if not public.tem_permissao('editar_financeiro') then
+    raise exception 'Você não tem permissão para recusar comprovantes';
+  end if;
+  if coalesce(trim(p_motivo),'') = '' then raise exception 'Informe o motivo da recusa'; end if;
+  update public.mensalidades set recusado_em = now(), motivo_recusa = p_motivo
+   where id = p_mensalidade_id and not pago;
+end $$;
+
+revoke execute on function public.anexar_comprovante(bigint, text) from public, anon;
+revoke execute on function public.confirmar_pagamento(bigint, text, date) from public, anon;
+revoke execute on function public.recusar_comprovante(bigint, text) from public, anon;
+grant execute on function public.anexar_comprovante(bigint, text) to authenticated;
+grant execute on function public.confirmar_pagamento(bigint, text, date) to authenticated;
+grant execute on function public.recusar_comprovante(bigint, text) to authenticated;
