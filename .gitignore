@@ -6,3 +6,10 @@ venv/
 .DS_Store
 backend/uploads/*
 !backend/uploads/.gitkeep
+
+# Backups do banco: contêm dados pessoais dos integrantes (endereço, CNH).
+# Este repositório é público — nunca versionar.
+*.sql.gz
+imaculados_*.sql
+backup/*.sql
+.senha
