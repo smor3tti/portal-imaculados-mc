@@ -773,3 +773,19 @@ drop policy if exists eventos_img_excluir on storage.objects;
 create policy eventos_img_excluir on storage.objects
   for delete to authenticated
   using (bucket_id = 'eventos' and public.tem_permissao('editar_eventos'));
+
+
+-- ============================================================================
+-- 15. BLINDAGEM DAS FUNÇÕES DE GATILHO
+-- ============================================================================
+-- Funções de trigger não devem ser chamáveis de fora: elas existem para rodar
+-- quando o banco dispara o gatilho. Sem este revoke, ficavam expostas como API
+-- pública em /rest/v1/rpc/ — apontado pelo verificador de segurança do Supabase.
+revoke execute on function public.lancar_mensalidade_no_caixa() from public, anon, authenticated;
+revoke execute on function public.tratar_afastamento()          from public, anon, authenticated;
+revoke execute on function public.marcar_atualizacao()          from public, anon, authenticated;
+revoke execute on function public.sincronizar_cargo()           from public, anon, authenticated;
+
+alter function public.situacao_mensalidade(public.mensalidades) set search_path = public;
+revoke execute on function public.situacao_mensalidade(public.mensalidades) from public, anon;
+grant  execute on function public.situacao_mensalidade(public.mensalidades) to authenticated;

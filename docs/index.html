@@ -1103,15 +1103,6 @@ async function aprovarSolicitacaoSb(c, id){
   return {integrante_id: novo.id, login_gerado: s.email || '(sem e-mail)', senha_temporaria: null, criar_conta: true};
 }
 
-/* Detecta se a "API" é um Web App do Google Apps Script (planilha como banco).
-   O Apps Script não aceita rotas REST nem cabeçalhos personalizados, então o
-   pedido vai todo dentro de um POST simples — e o content-type precisa ser
-   text/plain para o navegador não disparar a checagem de CORS (preflight),
-   que o Apps Script não sabe responder. */
-function ehAppsScript(url){
-  return /script\.google\.com/.test(url || '');
-}
-
 async function apiFetch(path, options){
   options = options || {};
   var metodo = options.method || 'GET';
@@ -1120,20 +1111,8 @@ async function apiFetch(path, options){
     return await supabaseFetch(path, metodo, options.body ? JSON.parse(options.body) : {});
   }
 
-  if(ehAppsScript(state.apiBase)){
-    var corpo = options.body ? JSON.parse(options.body) : {};
-    var resposta = await fetch(state.apiBase, {
-      method: 'POST',
-      headers: {'Content-Type': 'text/plain;charset=utf-8'},
-      body: JSON.stringify({path: path, method: metodo, body: corpo, token: state.token})
-    });
-    var dados = await resposta.json();
-    if(dados && dados._status && dados._status >= 400){
-      throw new Error(dados.detail || 'Erro na requisição');
-    }
-    return dados;
-  }
-
+  /* Caminho alternativo: uma API REST própria (o backend FastAPI do repositório).
+     Mantido para quem optar por hospedar a API em vez de usar o Supabase. */
   options.headers = options.headers || {};
   options.headers['Content-Type'] = 'application/json';
   if(state.token) options.headers['Authorization'] = 'Bearer ' + state.token;
@@ -2501,13 +2480,9 @@ async function renderDocumentos(body){
   body.innerHTML =
     '<div class="painel-titulo">Documentos</div>' +
     '<div class="painel-sub">Atas, regimento, contratos e demais arquivos do M.C.</div>' +
-    (ehAppsScript(state.apiBase) ?
-      '<div class="demo-banner" style="margin-bottom:18px;"><span>Na versão com planilha do Google, o envio de arquivos ainda não está disponível — ' +
-      'guarde os documentos numa pasta do Drive por enquanto. Este módulo funciona por completo quando a API própria for hospedada.</span></div>'
-      : '') +
     '<div class="toolbar">' +
       '<div class="tabs" id="tabs-categoria-doc"></div>' +
-      (podeFazer('editar_documentos') && !ehAppsScript(state.apiBase) ? '<button class="btn-primario" onclick="abrirModalNovoDocumento()">+ Novo documento</button>' : '') +
+      (podeFazer('editar_documentos') ? '<button class="btn-primario" onclick="abrirModalNovoDocumento()">+ Novo documento</button>' : '') +
     '</div>' +
     '<div class="table-wrap"><table>' +
       '<thead><tr><th>Título</th><th>Categoria</th><th>Arquivo</th><th>Tamanho</th><th>Enviado por</th><th>Data</th><th></th></tr></thead>' +
@@ -2526,7 +2501,7 @@ function filtrarDocumentos(c){ documentosFiltroCategoria = c; renderDocumentos(d
 
 async function desenharDocumentos(){
   var lista = demoDocumentos;
-  if(state.apiBase && !ehAppsScript(state.apiBase)){
+  if(temBackend()){
     try{ lista = await apiFetch('/documentos'); }catch(e){ /* mantém mock em caso de falha */ }
   }
   if(documentosFiltroCategoria !== 'Todas'){
@@ -2699,19 +2674,11 @@ async function enviarSolicitacaoPublica(){
     catch(e){ alert('Erro ao enviar solicitação: '+e.message); return; }
   } else if(temBackend()){
     try{
-      if(ehAppsScript(state.apiBase)){
-        var r1 = await fetch(state.apiBase, {
-          method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
-          body: JSON.stringify({path:'/solicitacoes', method:'POST', body:dados})
-        });
-        var d1 = await r1.json();
-        if(d1 && d1._status >= 400) throw new Error(d1.detail || 'Falha ao enviar');
-      } else {
-        var res = await fetch(state.apiBase.replace(/\/$/,'') + '/solicitacoes', {
-          method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(dados)
-        });
-        if(!res.ok) throw new Error('Falha ao enviar (HTTP '+res.status+')');
-      }
+      /* Cadastro público não tem sessão: chamada direta, sem token */
+      var res = await fetch(state.apiBase.replace(/\/$/,'') + '/solicitacoes', {
+        method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(dados)
+      });
+      if(!res.ok) throw new Error('Falha ao enviar (HTTP '+res.status+')');
     }catch(e){ alert('Erro ao enviar solicitação: '+e.message); return; }
   } else {
     dados.id = Math.max.apply(null, demoSolicitacoes.map(function(s){return s.id;}).concat([0])) + 1;

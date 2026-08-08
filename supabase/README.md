@@ -68,8 +68,12 @@ A partir daí você entra no portal e cria os demais acessos pela aba **Acessos*
 ### 1. Senhas não ficam no nosso banco
 Quem cuida disso é o **Supabase Auth**: hash forte, recuperação por e-mail,
 proteção contra tentativas repetidas. Bem mais seguro do que qualquer coisa que
-guardássemos por conta própria — e resolve o problema que existia na versão com
-planilha do Google.
+guardássemos por conta própria.
+
+> A primeira versão do portal usou uma planilha do Google como banco, com as
+> senhas guardadas ali. Essa abordagem foi abandonada em favor do Supabase, e o
+> código correspondente foi removido do repositório — o histórico do Git
+> preserva, caso um dia seja preciso consultar.
 
 ### 2. CNH e endereço ficam numa tabela separada
 O controle de acesso do Postgres filtra **linhas**, não **colunas**. Se a CNH
