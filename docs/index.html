@@ -661,6 +661,45 @@ async function enviarComprovante(arquivo, integranteId){
   return caminho;
 }
 
+/* ---- Documentos (bucket PRIVADO) ---- */
+/* Mesmo padrão de enviarComprovante: sobe o arquivo pro Storage e devolve
+   o caminho, que depois é gravado na tabela junto com título e categoria. */
+async function enviarDocumento(arquivo){
+  var c = clienteSupabase();
+  if (!c) throw new Error('Sem conexão com o banco.');
+
+  var tiposAceitos = ['application/pdf','application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'image/jpeg','image/png','text/plain'];
+  var extsAceitas = /\.(pdf|docx?|xlsx?|jpe?g|png|txt)$/i;
+  if (tiposAceitos.indexOf(arquivo.type) === -1 && !extsAceitas.test(arquivo.name)){
+    throw new Error('Envie um PDF, Word, Excel, imagem (JPG/PNG) ou TXT.');
+  }
+  if (arquivo.size > TAMANHO_MAX_IMAGEM_MB * 1024 * 1024){
+    throw new Error('O arquivo tem ' + (arquivo.size/1048576).toFixed(1) +
+                    'MB. O limite é ' + TAMANHO_MAX_IMAGEM_MB + 'MB.');
+  }
+
+  var ext = (arquivo.name.split('.').pop() || 'pdf').toLowerCase().replace(/[^a-z0-9]/g,'');
+  var caminho = Date.now() + '-' + Math.random().toString(36).slice(2,8) + '.' + ext;
+
+  var envio = await c.storage.from('documentos')
+    .upload(caminho, arquivo, {contentType: arquivo.type || 'application/octet-stream', upsert: false});
+  if (envio.error) throw new Error('Falha ao enviar o documento: ' + envio.error.message);
+  return caminho;
+}
+
+async function abrirDocumento(caminho){
+  var c = clienteSupabase();
+  if (!c){ alert('Sem conexão com o banco.'); return null; }
+  /* Link válido por 5 minutos, igual ao comprovante — o bucket é privado. */
+  var r = await c.storage.from('documentos').createSignedUrl(caminho, 300);
+  if (r.error) throw new Error(r.error.message);
+  return r.data.signedUrl;
+}
+
 async function abrirComprovante(caminho){
   var c = clienteSupabase();
   if (!c){ alert('Sem conexão com o banco.'); return; }
@@ -946,6 +985,17 @@ async function supabaseFetch(path, metodo, corpo){
         x.data_upload = x.criado_em;
         return x;
       });
+    }
+    if (p.length === 1 && metodo === 'POST'){
+      var quemEnviou = await meuIntegranteId(c);
+      return erroSb(await c.from('documentos').insert({
+        titulo: corpo.titulo,
+        categoria: corpo.categoria || 'Outro',
+        arquivo_nome: corpo.arquivo_nome,
+        storage_path: corpo.storage_path,
+        tamanho_kb: corpo.tamanho_kb || 0,
+        enviado_por: quemEnviou
+      }).select().single());
     }
     if (p.length === 2 && metodo === 'DELETE'){
       var doc = erroSb(await c.from('documentos').select('storage_path').eq('id', p[1]).single());
@@ -2522,14 +2572,24 @@ async function desenharDocumentos(){
       '<td>'+(d.integrante_nome||integranteNome(d.integrante_id))+'</td>' +
       '<td>'+fmtDataHora(d.data_upload)+'</td>' +
       '<td style="display:flex;gap:12px;">' +
-        '<button class="acao-link" onclick="baixarDocumento('+d.id+',\''+d.arquivo_nome.replace(/'/g,"")+'\')">Baixar</button>' +
+        '<button class="acao-link" onclick="baixarDocumento('+d.id+',\''+d.arquivo_nome.replace(/'/g,"")+'\',\''+(d.storage_path||'').replace(/'/g,"")+'\')">Baixar</button>' +
         '<button class="acao-link" style="color:var(--danger);" onclick="excluirDocumento('+d.id+')">Excluir</button>' +
       '</td>' +
     '</tr>';
   }).join('');
 }
 
-async function baixarDocumento(id, nomeArquivo){
+async function baixarDocumento(id, nomeArquivo, storagePath){
+  if(usandoSupabase()){
+    if(!storagePath){ alert('Este documento não tem arquivo associado no Storage.'); return; }
+    try{
+      var url = await abrirDocumento(storagePath);
+      var a = document.createElement('a');
+      a.href = url; a.download = nomeArquivo; a.target = '_blank';
+      document.body.appendChild(a); a.click(); a.remove();
+    }catch(e){ alert('Erro ao baixar documento: '+e.message); }
+    return;
+  }
   if(!state.apiBase){
     alert('Modo demonstração: este é um arquivo fictício, sem conteúdo real para baixar. Conecte a API para baixar arquivos de verdade.');
     return;
@@ -2540,11 +2600,11 @@ async function baixarDocumento(id, nomeArquivo){
     });
     if(!res.ok) throw new Error('Falha ao baixar (HTTP '+res.status+')');
     var blob = await res.blob();
-    var url = URL.createObjectURL(blob);
-    var a = document.createElement('a');
-    a.href = url; a.download = nomeArquivo;
-    document.body.appendChild(a); a.click(); a.remove();
-    URL.revokeObjectURL(url);
+    var blobUrl = URL.createObjectURL(blob);
+    var a2 = document.createElement('a');
+    a2.href = blobUrl; a2.download = nomeArquivo;
+    document.body.appendChild(a2); a2.click(); a2.remove();
+    URL.revokeObjectURL(blobUrl);
   }catch(e){ alert('Erro ao baixar documento: '+e.message); }
 }
 
@@ -2576,7 +2636,18 @@ async function salvarNovoDocumento(){
 
   if(!titulo || !arquivo){ alert('Informe o título e selecione um arquivo.'); return; }
 
-  if(temBackend()){
+  if(usandoSupabase()){
+    try{
+      var caminhoDoc = await enviarDocumento(arquivo);
+      await apiFetch('/documentos', {method:'POST', body: JSON.stringify({
+        titulo: titulo,
+        categoria: categoria,
+        arquivo_nome: arquivo.name,
+        storage_path: caminhoDoc,
+        tamanho_kb: Math.round(arquivo.size/1024)
+      })});
+    }catch(e){ alert('Erro ao enviar documento: '+e.message); return; }
+  } else if(state.apiBase){
     try{
       var formData = new FormData();
       formData.append('titulo', titulo);
