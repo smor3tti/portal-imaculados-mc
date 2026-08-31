@@ -2572,11 +2572,32 @@ async function desenharDocumentos(){
       '<td>'+(d.integrante_nome||integranteNome(d.integrante_id))+'</td>' +
       '<td>'+fmtDataHora(d.data_upload)+'</td>' +
       '<td style="display:flex;gap:12px;">' +
+        (documentoVisualizavel(d.arquivo_nome) ?
+          '<button class="acao-link" onclick="visualizarDocumento(\''+(d.storage_path||'').replace(/'/g,"")+'\')">Visualizar</button>' : '') +
         '<button class="acao-link" onclick="baixarDocumento('+d.id+',\''+d.arquivo_nome.replace(/'/g,"")+'\',\''+(d.storage_path||'').replace(/'/g,"")+'\')">Baixar</button>' +
         '<button class="acao-link" style="color:var(--danger);" onclick="excluirDocumento('+d.id+')">Excluir</button>' +
       '</td>' +
     '</tr>';
   }).join('');
+}
+
+/* Extensões que o próprio navegador consegue exibir numa aba, sem baixar
+   (PDF nativo, imagens e texto simples). Word/Excel ficam de fora porque
+   o navegador força download mesmo assim. */
+function documentoVisualizavel(nomeArquivo){
+  return /\.(pdf|jpe?g|png|gif|webp|txt)$/i.test(nomeArquivo || '');
+}
+
+async function visualizarDocumento(storagePath){
+  if(!storagePath){ alert('Este documento não tem arquivo associado no Storage.'); return; }
+  if(!usandoSupabase()){
+    alert('Modo demonstração: este é um arquivo fictício, sem conteúdo real para visualizar.');
+    return;
+  }
+  try{
+    var url = await abrirDocumento(storagePath);
+    window.open(url, '_blank');
+  }catch(e){ alert('Erro ao abrir documento: '+e.message); }
 }
 
 async function baixarDocumento(id, nomeArquivo, storagePath){
