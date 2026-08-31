@@ -75,7 +75,7 @@ end $$;
 -- A regra de quem é cobrado fica no BANCO, não na tela: assim não há risco de
 -- a interface e o servidor discordarem sobre quem deve pagar.
 create or replace function public.gerar_mensalidades(
-  p_referencia text, p_valor numeric default 40.00, p_dia_venc int default 10)
+  p_referencia text, p_valor numeric default 50.00, p_dia_venc int default 10)
 returns table (criadas int, ja_existiam int, pulados_afastados int)
 language plpgsql security definer set search_path = public as $$
 declare v_ano int; v_mes int; v_venc date; v_antes int; v_depois int; v_alvos int; v_afast int;

@@ -356,6 +356,30 @@ tr:hover td{background:#191919;}
   </div>
 </div>
 
+<div id="trocar-senha-screen">
+  <div class="login-card">
+    <div class="crest-wrap" id="crest-trocar-senha"></div>
+    <div class="titulo-clube">Defina sua nova senha</div>
+    <div class="subtitulo-login">Acesso liberado com senha padrão — troque antes de continuar</div>
+    <form id="form-trocar-senha" onsubmit="return confirmarTrocaSenhaObrigatoria(event)">
+      <div class="campo">
+        <label for="in-nova-senha">Nova senha</label>
+        <input type="password" id="in-nova-senha" autocomplete="new-password" placeholder="pelo menos 6 caracteres">
+      </div>
+      <div class="campo">
+        <label for="in-nova-senha-confirma">Confirme a nova senha</label>
+        <input type="password" id="in-nova-senha-confirma" autocomplete="new-password" placeholder="repita a senha">
+      </div>
+      <button type="submit" class="btn-entrar">Salvar e continuar</button>
+      <div class="erro-login" id="erro-trocar-senha"></div>
+    </form>
+    <div class="dica-login">
+      Sua conta foi criada pela diretoria com uma senha padrão. Por segurança,
+      você precisa escolher uma senha só sua antes de acessar o portal.
+    </div>
+  </div>
+</div>
+
 <div id="app-screen">
   <div class="shell">
     <aside class="sidebar">
@@ -822,7 +846,7 @@ async function supabaseFetch(path, metodo, corpo){
          Deixar essa regra no servidor evita que a tela e o banco discordem. */
       r = erroSb(await c.rpc('gerar_mensalidades', {
         p_referencia: corpo.referencia,
-        p_valor: corpo.valor || 40,
+        p_valor: corpo.valor || 50,
         p_dia_venc: corpo.dia_vencimento || 10
       }));
       return Array.isArray(r) ? r[0] : r;
@@ -1087,6 +1111,7 @@ async function montarPerfil(c, usuario){
     nome: perfil.integrante ? perfil.integrante.nome_completo : usuario.email,
     cargo: perfil.cargo,
     integrante_id: perfil.integrante_id,
+    precisa_trocar_senha: !!perfil.precisa_trocar_senha,
     permissoes: permissoesEfetivas(perfil.cargo, perfil.permissoes_customizadas || {})
   };
 }
@@ -1192,7 +1217,11 @@ async function handleLogin(ev){
       state.token='supabase'; state.cargo=perfil.cargo; state.nome=perfil.nome;
       state.permissoes = perfil.permissoes || [];
       state.integranteId = perfil.integrante_id || null;
-      state.screen='app'; state.view='dashboard';
+      if (perfil.precisa_trocar_senha){
+        state.screen='trocar-senha';
+      } else {
+        state.screen='app'; state.view='dashboard';
+      }
       render();
     }catch(e){
       erroEl.textContent = e.message;
@@ -1256,6 +1285,33 @@ async function esqueciSenha(){
   }catch(e){ erroEl.style.color=''; erroEl.textContent = e.message; }
 }
 
+/* Troca obrigatória de senha (contas criadas pela diretoria com senha padrão).
+   Depois de salvar a nova senha, avisa o banco pra não pedir de novo. */
+async function confirmarTrocaSenhaObrigatoria(ev){
+  if(ev) ev.preventDefault();
+  var nova = document.getElementById('in-nova-senha').value;
+  var confirma = document.getElementById('in-nova-senha-confirma').value;
+  var erroEl = document.getElementById('erro-trocar-senha');
+  erroEl.style.color = ''; erroEl.textContent = '';
+
+  if(nova.length < 6){ erroEl.textContent = 'A nova senha precisa ter pelo menos 6 caracteres.'; return false; }
+  if(nova !== confirma){ erroEl.textContent = 'As senhas não coincidem.'; return false; }
+  if(nova === 'Mudar@123'){ erroEl.textContent = 'Escolha uma senha diferente da senha padrão.'; return false; }
+
+  var c = clienteSupabase();
+  if(!c){ erroEl.textContent = 'Sem conexão com o banco.'; return false; }
+
+  try{
+    var r = await c.auth.updateUser({password: nova});
+    if(r.error) throw new Error(traduzErro(r.error.message));
+    var rpc = await c.rpc('concluir_troca_senha_obrigatoria');
+    if(rpc.error) throw new Error(traduzErro(rpc.error.message));
+    state.screen='app'; state.view='dashboard';
+    render();
+  }catch(e){ erroEl.textContent = e.message; }
+  return false;
+}
+
 async function handleLogout(){
   if(usandoSupabase()){ try{ await clienteSupabase().auth.signOut(); }catch(e){} }
   state.token=null; state.cargo=null; state.nome=null; state.permissoes=[]; state.screen='publico';
@@ -1302,15 +1358,17 @@ function alternarRilh(el){
 function render(){
   document.getElementById('crest-public').innerHTML = crestSvg(150);
   document.getElementById('crest-login').innerHTML = crestSvg(120);
+  document.getElementById('crest-trocar-senha').innerHTML = crestSvg(120);
   document.getElementById('crest-sidebar').innerHTML = crestSvg(44);
 
   document.getElementById('public-screen').style.display = state.screen==='publico' ? 'flex' : 'none';
   document.getElementById('cadastro-screen').style.display = state.screen==='cadastro' ? 'flex' : 'none';
   document.getElementById('login-screen').style.display = state.screen==='login' ? 'flex' : 'none';
+  document.getElementById('trocar-senha-screen').style.display = state.screen==='trocar-senha' ? 'flex' : 'none';
   document.getElementById('app-screen').style.display = state.screen==='app' ? 'block' : 'none';
 
   // A sigla fica nas telas públicas; no painel ela sobreporia as tabelas.
-  document.getElementById('rilh-lateral').style.display = state.screen==='app' ? 'none' : 'flex';
+  document.getElementById('rilh-lateral').style.display = (state.screen==='app' || state.screen==='trocar-senha') ? 'none' : 'flex';
 
   if(state.screen==='cadastro'){ renderCadastroForm(); return; }
   if(state.screen!=='app') return;
@@ -1954,7 +2012,7 @@ function abrirModalGerarMensalidades(){
         '<h3>Gerar mensalidades do mês</h3>' +
         '<div class="grid-2">' +
           '<div class="campo"><label>Referência</label><input type="month" id="gerar-ref" value="'+refMesAtual()+'"></div>' +
-          '<div class="campo"><label>Valor (R$)</label><input type="number" id="gerar-valor" value="40" step="0.01" min="0"></div>' +
+          '<div class="campo"><label>Valor (R$)</label><input type="number" id="gerar-valor" value="50" step="0.01" min="0"></div>' +
         '</div>' +
         '<div class="campo"><label>Dia do vencimento</label><input type="number" id="gerar-dia" value="10" min="1" max="31"></div>' +
         '<div style="font-size:11.5px;color:var(--muted);line-height:1.7;border-top:1px solid var(--border);padding-top:12px;">' +
@@ -1976,7 +2034,7 @@ async function confirmarGerarMensalidades(){
   if(!ref){ alert('Informe a referência (mês/ano).'); return; }
   var corpo = {
     referencia: ref,
-    valor: Number(document.getElementById('gerar-valor').value) || 40,
+    valor: Number(document.getElementById('gerar-valor').value) || 50,
     dia_vencimento: Number(document.getElementById('gerar-dia').value) || 10
   };
   var btn = document.getElementById('btn-gerar');
@@ -3165,7 +3223,11 @@ async function retomarSessao(){
           state.token='supabase'; state.cargo=perfil.cargo; state.nome=perfil.nome;
           state.permissoes = perfil.permissoes || [];
           state.integranteId = perfil.integrante_id || null;
-          state.screen='app'; state.view='dashboard';
+          if (perfil.precisa_trocar_senha){
+            state.screen='trocar-senha';
+          } else {
+            state.screen='app'; state.view='dashboard';
+          }
         }
       }catch(e){ /* sessão inválida ou perfil não liberado: vai para a tela pública */ }
     }
