@@ -134,6 +134,12 @@ button,input{font-family:inherit;}
 .campo input,.campo select,.campo textarea{width:100%;background:var(--surface-2);border:1px solid var(--border-strong);border-radius:8px;padding:11px 12px;color:var(--cream);font-size:14px;font-family:inherit;}
 .campo textarea{resize:vertical;min-height:80px;line-height:1.5;}
 .campo input:focus,.campo select:focus,.campo textarea:focus{outline:none;border-color:var(--gold);}
+/* Botão "olho" para mostrar/ocultar senha */
+.senha-wrap{position:relative;}
+.senha-wrap input{padding-right:44px;}
+.btn-olho{position:absolute;top:50%;right:4px;transform:translateY(-50%);width:36px;height:36px;display:flex;align-items:center;justify-content:center;background:none;border:none;border-radius:6px;color:var(--muted);cursor:pointer;padding:0;}
+.btn-olho:hover,.btn-olho:focus-visible{color:var(--gold);outline:none;}
+.btn-olho svg{width:20px;height:20px;}
 .btn-entrar{width:100%;background:var(--gold);color:#0d0d0d;border:none;border-radius:8px;padding:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;font-size:13px;cursor:pointer;margin-top:8px;}
 .btn-entrar:hover{background:var(--gold-light);}
 .erro-login{color:var(--danger);font-size:12px;margin-top:14px;min-height:14px;}
@@ -3235,6 +3241,54 @@ async function retomarSessao(){
   render();
 }
 retomarSessao();
+</script>
+<script>
+/* Olho de mostrar/ocultar senha: aplicado a todo input[type=password] da página */
+(function () {
+  var OLHO = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
+  var OLHO_RISCADO = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.1 10.1 0 0 1 12 19c-6.5 0-10-7-10-7a18.4 18.4 0 0 1 5.06-5.94M9.9 4.24A9.1 9.1 0 0 1 12 4c6.5 0 10 7 10 7a18.5 18.5 0 0 1-2.16 3.19M14.12 14.12a3 3 0 1 1-4.24-4.24"/><line x1="2" y1="2" x2="22" y2="22"/></svg>';
+
+  function ocultar(input, btn) {
+    input.type = 'password';
+    btn.innerHTML = OLHO;
+    btn.setAttribute('aria-label', 'Mostrar senha');
+    btn.setAttribute('aria-pressed', 'false');
+  }
+
+  function aplicar(input) {
+    if (input.dataset.olho) return;
+    input.dataset.olho = '1';
+    var wrap = document.createElement('div');
+    wrap.className = 'senha-wrap';
+    input.parentNode.insertBefore(wrap, input);
+    wrap.appendChild(input);
+
+    var btn = document.createElement('button');
+    btn.type = 'button';               // não submete o formulário
+    btn.className = 'btn-olho';
+    wrap.appendChild(btn);
+    ocultar(input, btn);
+
+    // mousedown preventDefault mantém o foco/cursor no campo
+    btn.addEventListener('mousedown', function (e) { e.preventDefault(); });
+    btn.addEventListener('click', function () {
+      if (input.type === 'password') {
+        input.type = 'text';
+        btn.innerHTML = OLHO_RISCADO;
+        btn.setAttribute('aria-label', 'Ocultar senha');
+        btn.setAttribute('aria-pressed', 'true');
+      } else {
+        ocultar(input, btn);
+      }
+    });
+
+    // Volta a ocultar ao enviar: o gerenciador de senhas do navegador
+    // só reconhece/salva o campo se ele estiver como type=password
+    if (input.form) input.form.addEventListener('submit', function () { ocultar(input, btn); }, true);
+  }
+
+  document.querySelectorAll('input[type=password]').forEach(aplicar);
+})();
 </script>
 </body>
 </html>
