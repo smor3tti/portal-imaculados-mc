@@ -2971,6 +2971,11 @@ async function recusarSolicitacao(id){
 }
 
 /* ============ Acessos e permissões ============ */
+/* Id do usuário como argumento JS dentro de onclick: no Supabase é UUID (texto),
+   então precisa ir entre aspas; na demonstração é número. */
+function argJs(v){
+  return typeof v === 'number' ? String(v) : "'" + String(v).replace(/[^A-Za-z0-9_-]/g, '') + "'";
+}
 var demoUsuarios = [
   {id:1, login:'marcosandrade', cargo:'Presidente', ativo:true, integrante_id:1, integrante_nome:'Marcos Andrade', permissoes_customizadas:{}},
   {id:2, login:'rafaelsouza', cargo:'Vice-Presidente', ativo:true, integrante_id:2, integrante_nome:'Rafael Souza', permissoes_customizadas:{}},
@@ -3017,8 +3022,8 @@ async function renderAcessos(body){
         '</div>' +
         '<div class="acesso-acoes">' +
           '<span class="status-pill '+(u.ativo?'status-ativo':'status-inativo')+'">'+(u.ativo?'Ativo':'Bloqueado')+'</span>' +
-          '<select onchange="alterarCargoUsuario('+u.id+', this.value)">'+opcoes+'</select>' +
-          '<button class="acao-link" onclick="alternarExpandir('+u.id+')">'+(usuarioExpandido===u.id?'Fechar':'Permissões')+'</button>' +
+          '<select onchange="alterarCargoUsuario('+argJs(u.id)+', this.value)">'+opcoes+'</select>' +
+          '<button class="acao-link" onclick="alternarExpandir('+argJs(u.id)+')">'+(usuarioExpandido===u.id?'Fechar':'Permissões')+'</button>' +
         '</div>' +
       '</div>' +
       (usuarioExpandido===u.id ? blocoPermissoes(u) : '') +
@@ -3055,7 +3060,7 @@ function blocoPermissoes(u){
             '<div class="perm-origem'+(ehCustom?' custom':'')+'">'+origem+'</div>' +
           '</div>' +
           '<label class="chave-switch">' +
-            '<input type="checkbox" '+(ligado?'checked':'')+' onchange="alternarPermissao('+u.id+',\''+p.chave+'\', this.checked)">' +
+            '<input type="checkbox" '+(ligado?'checked':'')+' onchange="alternarPermissao('+argJs(u.id)+',\''+p.chave+'\', this.checked)">' +
             '<span class="chave-trilho"></span>' +
           '</label>' +
         '</div>';
@@ -3063,10 +3068,10 @@ function blocoPermissoes(u){
   });
   html += '</div>' +
     '<div class="perm-rodape">' +
-      '<button class="btn-secundario" onclick="restaurarPadraoCargo('+u.id+')">Voltar ao padrão do cargo</button>' +
-      '<button class="btn-secundario" onclick="resetarSenhaUsuario('+u.id+')">Resetar senha</button>' +
-      '<button class="btn-secundario" onclick="alternarAtivoUsuario('+u.id+')">'+(u.ativo?'Bloquear acesso':'Reativar acesso')+'</button>' +
-      '<button class="btn-entrar" style="width:auto;padding:9px 20px;" onclick="salvarPermissoes('+u.id+')">Salvar permissões</button>' +
+      '<button class="btn-secundario" onclick="restaurarPadraoCargo('+argJs(u.id)+')">Voltar ao padrão do cargo</button>' +
+      '<button class="btn-secundario" onclick="resetarSenhaUsuario('+argJs(u.id)+')">Resetar senha</button>' +
+      '<button class="btn-secundario" onclick="alternarAtivoUsuario('+argJs(u.id)+')">'+(u.ativo?'Bloquear acesso':'Reativar acesso')+'</button>' +
+      '<button class="btn-entrar" style="width:auto;padding:9px 20px;" onclick="salvarPermissoes('+argJs(u.id)+')">Salvar permissões</button>' +
     '</div>' +
     '<div id="msg-acesso-'+u.id+'"></div>';
   return html;
