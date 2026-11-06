@@ -1274,8 +1274,21 @@ async function criarConta(){
   try{
     var r = await clienteSupabase().auth.signUp({email: email, password: senha});
     if(r.error) throw new Error(traduzErro(r.error.message));
+    // E-mail já cadastrado: o Supabase responde "sucesso" sem criar conta nem
+    // enviar e-mail, devolvendo um usuário com a lista de identities vazia.
+    var u = r.data && r.data.user;
+    if (u && Array.isArray(u.identities) && u.identities.length === 0){
+      erroEl.style.color = '';
+      erroEl.textContent = 'Este e-mail já tem conta no portal. Clique em Entrar com sua senha '
+        + '(se a diretoria criou sua conta, use a senha padrão que ela passou) ou use "Esqueci a senha".';
+      return;
+    }
     erroEl.style.color = 'var(--gold)';
-    erroEl.textContent = 'Conta criada! Confirme pelo link enviado ao seu e-mail e depois entre.';
+    if (r.data && r.data.session){
+      erroEl.textContent = 'Conta criada! Clique em Entrar para acessar.';
+    } else {
+      erroEl.textContent = 'Conta criada! Confirme pelo link enviado ao seu e-mail e depois entre.';
+    }
   }catch(e){ erroEl.style.color=''; erroEl.textContent = e.message; }
 }
 
