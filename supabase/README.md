@@ -46,6 +46,28 @@ select u.id, i.id, 'Presidente'
 
 A partir daí você entra no portal e cria os demais acessos pela aba **Acessos**.
 
+### 5. Aplicar as atualizações posteriores
+Rode, nesta ordem, no SQL Editor (os dois são idempotentes):
+
+| Arquivo | O que traz |
+|---|---|
+| `03-financeiro.sql` | mensalidades, caixa, comprovantes, afastamento |
+| `04-atualizacoes-ago-out-2026.sql` | vínculo automático de conta, imagens em comunicados/eventos, bucket de documentos, troca obrigatória de senha, mensalidade padrão R$ 50, blindagens de segurança |
+| `05-acessos-suspensao-artes-cargos.sql` | status de acesso e presença online, status **Suspenso**, artes de aniversário, cargos Diretor Regional e Diretor de Expansão |
+
+Depois do `05`, cadastre-se como **administrador técnico** (é quem vê o status
+de senha/online e não pode ser bloqueado):
+
+```sql
+insert into public.admins_tecnicos(user_id)
+  select id from auth.users where email = 'seu-email@exemplo.com'
+on conflict do nothing;
+```
+
+> **Fonte da verdade:** o histórico completo fica em
+> `supabase_migrations.schema_migrations` no próprio Supabase. Ao aplicar
+> mudanças novas no banco, exporte-as para um arquivo `06-…sql` aqui.
+
 ---
 
 ## Como os dados ficam organizados
