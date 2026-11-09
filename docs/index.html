@@ -1110,7 +1110,7 @@ async function supabaseFetch(path, metodo, corpo){
   if (p[0] === 'usuarios'){
     if (p.length === 1 && metodo === 'GET'){
       r = erroSb(await c.from('perfis')
-        .select('*, integrante:integrante_id(nome_completo,nome_no_colete,email)'));
+        .select('*, integrante:integrante_id(nome_completo,nome_no_colete,email,status)'));
       return r.map(function(x){
         return {
           id: x.user_id,
@@ -1119,6 +1119,7 @@ async function supabaseFetch(path, metodo, corpo){
           ativo: x.ativo,
           integrante_id: x.integrante_id,
           integrante_nome: x.integrante ? x.integrante.nome_completo : '(conta sem integrante)',
+          integrante_status: x.integrante ? x.integrante.status : null,
           permissoes_customizadas: x.permissoes_customizadas || {},
           permissoes_efetivas: permissoesEfetivas(x.cargo, x.permissoes_customizadas || {})
         };
@@ -1598,7 +1599,8 @@ function filtrarMembros(v){
       '<td class="mono" style="color:var(--gold);">'+(i.nome_no_colete||'—')+'</td>' +
       '<td>'+(i.cargo||'')+'</td>' +
       '<td><span class="status-pill '+classeStatusIntegrante(i.status)+'">'+(i.status||'')+'</span>' +
-        (i.status==='Afastado' && i.afastamento_desde ? '<div style="font-size:10px;color:var(--muted-2);margin-top:3px;">desde '+fmtData(i.afastamento_desde)+'</div>' : '')+'</td>' +
+        (i.status==='Afastado' && i.afastamento_desde ? '<div style="font-size:10px;color:var(--muted-2);margin-top:3px;">desde '+fmtData(i.afastamento_desde)+'</div>' : '')+
+        (i.status==='Suspenso' && i.suspensao_desde ? '<div style="font-size:10px;color:var(--muted-2);margin-top:3px;">desde '+fmtData(i.suspensao_desde)+'</div>' : '')+'</td>' +
       '<td>'+(i.veiculo_principal||'—')+'</td>' +
       '<td class="mono">'+(i.placa_veiculo||'—')+'</td>' +
       '<td>'+(i.telefone||'—')+'</td>' +
@@ -1619,6 +1621,8 @@ function alternarMotivoAfastamento(){
   var sel = document.getElementById('ed-status');
   var bloco = document.getElementById('bloco-afastamento');
   if(sel && bloco) bloco.style.display = (sel.value === 'Afastado') ? 'block' : 'none';
+  var blocoS = document.getElementById('bloco-suspensao');
+  if(sel && blocoS) blocoS.style.display = (sel.value === 'Suspenso') ? 'block' : 'none';
 }
 
 function abrirModalEditarIntegrante(id){
@@ -1662,7 +1666,17 @@ function abrirModalEditarIntegrante(id){
           '<option'+(i.status==='Ativo'?' selected':'')+'>Ativo</option>' +
           '<option'+(i.status==='Afastado'?' selected':'')+'>Afastado</option>' +
           '<option'+(i.status==='Inativo'?' selected':'')+'>Inativo</option>' +
+          '<option'+(i.status==='Suspenso'?' selected':'')+'>Suspenso</option>' +
         '</select></div>' +
+        '<div id="bloco-suspensao" style="display:'+(i.status==='Suspenso'?'block':'none')+';">' +
+          '<div class="campo"><label>Motivo da suspensão</label>' +
+            '<input type="text" id="ed-motivo-susp" value="'+esc(i.suspensao_motivo)+'" placeholder="Ex.: decisão da diretoria em reunião"></div>' +
+          '<div style="font-size:11.5px;color:var(--muted);line-height:1.6;background:var(--surface-2);padding:10px 12px;border-radius:8px;margin-bottom:12px;">' +
+            'Ao suspender, o <b>acesso ao portal é bloqueado na hora</b> (quem estiver logado é desconectado) e ele <b>deixa de ser cobrado</b> nos próximos meses. ' +
+            'Mensalidades <b>já em aberto continuam devidas</b>. Ao voltar para Ativo, o acesso é liberado automaticamente.' +
+            (i.suspensao_desde ? '<br><br>Suspenso desde <b>'+fmtData(i.suspensao_desde)+'</b>.' : '') +
+          '</div>' +
+        '</div>' +
         '<div id="bloco-afastamento" style="display:'+(i.status==='Afastado'?'block':'none')+';">' +
           '<div class="campo"><label>Motivo do afastamento</label>' +
             '<input type="text" id="ed-motivo-afast" value="'+esc(i.afastamento_motivo)+'" placeholder="Ex.: saúde, viagem, financeiro"></div>' +
@@ -1707,6 +1721,9 @@ async function salvarEdicaoIntegrante(id){
      esses campos sozinho quando a pessoa volta. */
   if(dados.status === 'Afastado'){
     dados.afastamento_motivo = val('ed-motivo-afast') || null;
+  }
+  if(dados.status === 'Suspenso'){
+    dados.suspensao_motivo = val('ed-motivo-susp') || null;
   }
   if(document.getElementById('ed-endereco')){
     dados.endereco = val('ed-endereco');
@@ -2096,7 +2113,7 @@ function abrirModalGerarMensalidades(){
         '<div class="campo"><label>Dia do vencimento</label><input type="number" id="gerar-dia" value="10" min="1" max="31"></div>' +
         '<div style="font-size:11.5px;color:var(--muted);line-height:1.7;border-top:1px solid var(--border);padding-top:12px;">' +
           'A cobrança é criada apenas para integrantes <b>Ativos</b>. Quem está ' +
-          '<b>Afastado</b> ou <b>Inativo</b> é pulado automaticamente.<br>' +
+          '<b>Afastado</b>, <b>Suspenso</b> ou <b>Inativo</b> é pulado automaticamente.<br>' +
           'Rodar de novo no mesmo mês não duplica: quem já tem cobrança é ignorado.' +
         '</div>' +
         '<div class="modal-acoes">' +
@@ -3107,7 +3124,11 @@ async function renderAcessos(body){
           linhaStatusAcesso(u) +
         '</div>' +
         '<div class="acesso-acoes">' +
-          '<span class="status-pill '+(u.ativo?'status-ativo':'status-inativo')+'">'+(u.ativo?'Ativo':'Bloqueado')+'</span>' +
+          '<span class="status-pill '+(u.ativo?'status-ativo':'status-inativo')+'">'+
+            (u.integrante_status==='Suspenso' ? 'Suspenso' : (u.ativo?'Ativo':'Bloqueado'))+'</span>' +
+          (u.integrante_status==='Suspenso'
+            ? '<span class="acesso-meta" title="Para liberar, mude o status na ficha do integrante">liberar pela ficha</span>'
+            : '<button class="acao-link" style="color:'+(u.ativo?'#ff8478':'var(--success)')+';" onclick="alternarAtivoUsuario('+argJs(u.id)+')">'+(u.ativo?'Bloquear':'Reativar')+'</button>') +
           '<select onchange="alterarCargoUsuario('+argJs(u.id)+', this.value)">'+opcoes+'</select>' +
           '<button class="acao-link" onclick="alternarExpandir('+argJs(u.id)+')">'+(usuarioExpandido===u.id?'Fechar':'Permissões')+'</button>' +
         '</div>' +
@@ -3195,7 +3216,7 @@ function blocoPermissoes(u){
     '<div class="perm-rodape">' +
       '<button class="btn-secundario" onclick="restaurarPadraoCargo('+argJs(u.id)+')">Voltar ao padrão do cargo</button>' +
       '<button class="btn-secundario" onclick="resetarSenhaUsuario('+argJs(u.id)+')">Resetar senha</button>' +
-      '<button class="btn-secundario" onclick="alternarAtivoUsuario('+argJs(u.id)+')">'+(u.ativo?'Bloquear acesso':'Reativar acesso')+'</button>' +
+
       '<button class="btn-entrar" style="width:auto;padding:9px 20px;" onclick="salvarPermissoes('+argJs(u.id)+')">Salvar permissões</button>' +
     '</div>' +
     '<div id="msg-acesso-'+u.id+'"></div>';
@@ -3386,6 +3407,21 @@ async function retomarSessao(){
   render();
 }
 retomarSessao();
+
+/* Vigia de acesso: se a pessoa for bloqueada ou suspensa com o portal aberto,
+   ela é desconectada ao voltar para a aba ou em até 2 minutos. */
+async function verificarAcessoAtivo(){
+  if(!usandoSupabase() || state.token !== 'supabase') return;
+  try{ await apiFetch('/auth/me'); }
+  catch(e){
+    var msg = /bloquead|liberada|expirad/i.test(e.message || '') ? e.message : null;
+    if(!msg) return;   // falha de rede: não derruba ninguém
+    await handleLogout();
+    alert(msg);
+  }
+}
+document.addEventListener('visibilitychange', function(){ if(document.visibilityState === 'visible') verificarAcessoAtivo(); });
+setInterval(verificarAcessoAtivo, 120000);
 </script>
 <script>
 /* Olho de mostrar/ocultar senha: aplicado a todo input[type=password] da página */
