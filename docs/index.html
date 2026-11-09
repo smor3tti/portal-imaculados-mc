@@ -1504,9 +1504,32 @@ function render(){
   else if(state.view==='acessos') renderAcessos(body);
 }
 
+// Contagem real de pendentes (null = ainda não carregada). Com backend, NUNCA usa o mock.
+var pendentesSolicitacoes = null;
+
+function htmlBadgeSolicitacoes(n){
+  return n>0 ? '<span style="background:var(--gold);color:#0d0d0d;border-radius:20px;padding:1px 7px;font-size:10px;font-weight:700;margin-left:4px;">'+n+'</span>' : '';
+}
+
+async function atualizarContadorSolicitacoes(lista){
+  if(!temBackend()) return;
+  try{
+    if(!lista) lista = await apiFetch('/solicitacoes');
+    pendentesSolicitacoes = (lista||[]).filter(function(s){return s.status==='Pendente';}).length;
+  }catch(e){ pendentesSolicitacoes = null; }
+  var el = document.getElementById('badge-solicitacoes');
+  if(el) el.innerHTML = htmlBadgeSolicitacoes(pendentesSolicitacoes);
+}
+
 function contadorSolicitacoesPendentesBadge(){
-  var n = demoSolicitacoes.filter(function(s){return s.status==='Pendente';}).length;
-  return n>0 ? ' <span style="background:var(--gold);color:#0d0d0d;border-radius:20px;padding:1px 7px;font-size:10px;font-weight:700;margin-left:4px;">'+n+'</span>' : '';
+  var n;
+  if(temBackend()){
+    if(pendentesSolicitacoes===null) setTimeout(function(){ atualizarContadorSolicitacoes(); }, 0);
+    n = pendentesSolicitacoes || 0;
+  } else {
+    n = demoSolicitacoes.filter(function(s){return s.status==='Pendente';}).length;
+  }
+  return ' <span id="badge-solicitacoes">'+htmlBadgeSolicitacoes(n)+'</span>';
 }
 
 function demoBanner(){
@@ -3092,7 +3115,15 @@ async function renderSolicitacoes(body){
 
   var lista = demoSolicitacoes;
   if(temBackend()){
-    try{ lista = await apiFetch('/solicitacoes'); }catch(e){ /* mantém mock em caso de falha */ }
+    try{
+      lista = await apiFetch('/solicitacoes');
+      atualizarContadorSolicitacoes(lista);
+    }catch(e){
+      // com backend, nunca mostrar os pedidos fictícios do modo demonstração
+      document.getElementById('lista-solicitacoes').innerHTML =
+        '<div class="card"><div class="vazio">Não foi possível carregar as solicitações: '+(e && e.message ? e.message : 'erro desconhecido')+'</div></div>';
+      return;
+    }
   }
   lista = lista.slice().sort(function(a,b){
     if(a.status==='Pendente' && b.status!=='Pendente') return -1;
@@ -3157,6 +3188,7 @@ async function aprovarSolicitacao(id){
     });
   }
 
+  atualizarContadorSolicitacoes();
   var pill = document.getElementById('status-pill-'+id);
   if(pill){ pill.textContent='Aprovada'; pill.className='status-pill status-ativo'; }
   var acoes = document.getElementById('acoes-'+id);
@@ -3186,6 +3218,7 @@ async function recusarSolicitacao(id){
   if(pill){ pill.textContent='Recusada'; pill.className='status-pill status-inativo'; }
   var acoes = document.getElementById('acoes-'+id);
   if(acoes){ acoes.innerHTML=''; }
+  atualizarContadorSolicitacoes();
 }
 
 /* ============ Acessos e permissões ============ */
