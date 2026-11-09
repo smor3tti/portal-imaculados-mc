@@ -266,6 +266,11 @@ tr:hover td{background:#191919;}
 .acesso-acoes{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
 .acesso-acoes select{background:var(--surface-2);border:1px solid var(--border-strong);border-radius:8px;padding:7px 10px;color:var(--cream);font-size:12px;}
 .acesso-acoes select:focus{outline:none;border-color:var(--gold);}
+.acesso-status{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;font-size:11.5px;color:var(--muted);margin-top:7px;}
+.ponto-online{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--muted-2);margin-right:6px;vertical-align:middle;}
+.ponto-online.on{background:var(--success);box-shadow:0 0 0 3px rgba(79,157,108,0.25);}
+.acesso-resumo{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px;}
+.acesso-resumo .status-pill{font-weight:600;}
 .perm-grupo{margin-top:14px;}
 .perm-grupo-titulo{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin:12px 0 6px;}
 .perm-linha{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 0;border-top:1px solid var(--border);}
@@ -625,9 +630,51 @@ function clienteSupabase(){
   if (sb) return sb;
   if (typeof window.supabase === 'undefined') return null;
   sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  try{
+    sb.auth.onAuthStateChange(function(evento){
+      if (evento === 'PASSWORD_RECOVERY'){
+        modoRecuperacao = true;
+        if (state.token){ state.screen = 'trocar-senha'; render(); }
+      }
+    });
+  }catch(e){}
   return sb;
 }
 function usandoSupabase(){ return state.backend === 'supabase'; }
+
+/* ---- Quem está online agora (Supabase Realtime Presence) ----
+   Canal PRIVADO: só contas ativas do portal entram (políticas em realtime.messages).
+   Cada aba anuncia apenas o id do usuário; o nome é resolvido na tela de Acessos. */
+var canalOnline = null;
+var onlineIds = {};
+
+async function iniciarPresenca(){
+  if (!usandoSupabase() || canalOnline || !state.userId) return;
+  var c = clienteSupabase(); if (!c) return;
+  try { if (c.realtime && c.realtime.setAuth) await c.realtime.setAuth(); } catch(e){}
+  canalOnline = c.channel('portal-online', {config: {private: true, presence: {key: state.userId}}});
+  canalOnline
+    .on('presence', {event: 'sync'}, function(){
+      var st = canalOnline ? canalOnline.presenceState() : {};
+      onlineIds = {};
+      Object.keys(st).forEach(function(k){ onlineIds[k] = true; });
+      atualizarIndicadoresOnline();
+    })
+    .subscribe(function(status){
+      if (status === 'SUBSCRIBED') canalOnline.track({desde: new Date().toISOString()});
+    });
+}
+
+async function pararPresenca(){
+  if (!canalOnline) return;
+  var ch = canalOnline; canalOnline = null; onlineIds = {};
+  try { await ch.untrack(); } catch(e){}
+  try { await clienteSupabase().removeChannel(ch); } catch(e){}
+}
+
+/* Link de "Esqueci a senha": o Supabase devolve a pessoa logada com type=recovery
+   na URL. Sem tratar isso, ela entrava direto no portal sem nunca definir a senha nova. */
+var modoRecuperacao = /type=recovery/.test(window.location.hash || '');
 
 /* ---- Imagens (Supabase Storage) ---- */
 var TAMANHO_MAX_IMAGEM_MB = 5;
@@ -1224,12 +1271,14 @@ async function handleLogin(ev){
       state.token='supabase'; state.cargo=perfil.cargo; state.nome=perfil.nome;
       state.permissoes = perfil.permissoes || [];
       state.integranteId = perfil.integrante_id || null;
+      state.userId = perfil.id || null;
       if (perfil.precisa_trocar_senha){
         state.screen='trocar-senha';
       } else {
         state.screen='app'; state.view='dashboard';
       }
       render();
+      iniciarPresenca();
     }catch(e){
       erroEl.textContent = e.message;
       try{ await clienteSupabase().auth.signOut(); }catch(x){}
@@ -1326,6 +1375,10 @@ async function confirmarTrocaSenhaObrigatoria(ev){
     if(r.error) throw new Error(traduzErro(r.error.message));
     var rpc = await c.rpc('concluir_troca_senha_obrigatoria');
     if(rpc.error) throw new Error(traduzErro(rpc.error.message));
+    if(modoRecuperacao){
+      modoRecuperacao = false;
+      try{ history.replaceState(null, '', window.location.pathname + window.location.search); }catch(x){}
+    }
     state.screen='app'; state.view='dashboard';
     render();
   }catch(e){ erroEl.textContent = e.message; }
@@ -1333,7 +1386,9 @@ async function confirmarTrocaSenhaObrigatoria(ev){
 }
 
 async function handleLogout(){
+  await pararPresenca();
   if(usandoSupabase()){ try{ await clienteSupabase().auth.signOut(); }catch(e){} }
+  state.userId=null;
   state.token=null; state.cargo=null; state.nome=null; state.permissoes=[]; state.screen='publico';
   render();
 }
@@ -1385,6 +1440,10 @@ function render(){
   document.getElementById('cadastro-screen').style.display = state.screen==='cadastro' ? 'flex' : 'none';
   document.getElementById('login-screen').style.display = state.screen==='login' ? 'flex' : 'none';
   document.getElementById('trocar-senha-screen').style.display = state.screen==='trocar-senha' ? 'flex' : 'none';
+  if(state.screen==='trocar-senha' && modoRecuperacao){
+    var sub = document.querySelector('#trocar-senha-screen .subtitulo-login');
+    if(sub) sub.textContent = 'Você pediu para redefinir a senha — escolha a nova';
+  }
   document.getElementById('app-screen').style.display = state.screen==='app' ? 'block' : 'none';
 
   // A sigla fica nas telas públicas; no painel ela sobreporia as tabelas.
@@ -3007,6 +3066,31 @@ async function renderAcessos(body){
   }
   usuariosAtuais = lista;
 
+  statusAcessos = {};
+  if(usandoSupabase()){
+    try{
+      var rs = await clienteSupabase().rpc('status_acessos');
+      if(!rs.error && rs.data) rs.data.forEach(function(x){ statusAcessos[x.user_id] = x; });
+    }catch(e){ /* sem status: a tela continua funcionando */ }
+  }
+
+  var temStatus = Object.keys(statusAcessos).length > 0;
+  if(temStatus){
+    var trocaram = 0, padrao = 0, nunca = 0;
+    lista.forEach(function(u){
+      var st = statusAcessos[u.id]; if(!st) return;
+      if(st.precisa_trocar_senha) padrao++; else trocaram++;
+      if(!st.ultimo_login) nunca++;
+    });
+    document.getElementById('lista-acessos').insertAdjacentHTML('beforebegin',
+      '<div class="acesso-resumo">' +
+        '<span class="status-pill status-ativo" id="resumo-online"><span class="ponto-online on"></span>0 online agora</span>' +
+        '<span class="status-pill status-ativo">'+trocaram+' trocaram a senha</span>' +
+        '<span class="status-pill status-pendente">'+padrao+' ainda com senha padrão</span>' +
+        '<span class="status-pill status-afastado">'+nunca+' nunca entraram</span>' +
+      '</div>');
+  }
+
   document.getElementById('lista-acessos').innerHTML = lista.map(function(u){
     var custom = u.permissoes_customizadas || {};
     var qtdeAjustes = Object.keys(custom).length;
@@ -3020,6 +3104,7 @@ async function renderAcessos(body){
           '<div class="acesso-meta">login: <span class="mono">'+u.login+'</span> · '+efetivas.length+' permissões' +
             (qtdeAjustes ? ' · <span style="color:var(--gold);">'+qtdeAjustes+' ajuste(s) individual(is)</span>' : '') +
           '</div>' +
+          linhaStatusAcesso(u) +
         '</div>' +
         '<div class="acesso-acoes">' +
           '<span class="status-pill '+(u.ativo?'status-ativo':'status-inativo')+'">'+(u.ativo?'Ativo':'Bloqueado')+'</span>' +
@@ -3030,6 +3115,45 @@ async function renderAcessos(body){
       (usuarioExpandido===u.id ? blocoPermissoes(u) : '') +
     '</div>';
   }).join('');
+}
+
+var statusAcessos = {};   // user_id -> {ultimo_login, ultima_atividade, sessoes, precisa_trocar_senha}
+
+function dataHoraCurta(iso){
+  if(!iso) return '';
+  var d = new Date(iso);
+  var p = function(n){ return (n<10?'0':'')+n; };
+  return p(d.getDate())+'/'+p(d.getMonth()+1)+' '+p(d.getHours())+':'+p(d.getMinutes());
+}
+
+function linhaStatusAcesso(u){
+  var st = statusAcessos[u.id];
+  if(!st) return '';
+  var on = !!onlineIds[u.id];
+  var visto = st.ultima_atividade || st.ultimo_login;
+  var textoOnline = on ? 'Online agora'
+                   : (st.ultimo_login ? 'Última atividade '+dataHoraCurta(visto) : 'Nunca entrou');
+  return '<div class="acesso-status">' +
+    '<span data-online-uid="'+u.id+'"><span class="ponto-online'+(on?' on':'')+'"></span>' +
+      '<span class="txt-online" data-visto="'+(st.ultimo_login ? 'Última atividade '+dataHoraCurta(visto) : 'Nunca entrou')+'">'+textoOnline+'</span></span>' +
+    (st.precisa_trocar_senha
+      ? '<span class="status-pill status-pendente">Senha padrão</span>'
+      : '<span class="status-pill status-ativo">Senha trocada</span>') +
+  '</div>';
+}
+
+/* Chamada a cada mudança de presença: atualiza só os pontinhos, sem recarregar a lista. */
+function atualizarIndicadoresOnline(){
+  var resumo = document.getElementById('resumo-online');
+  if(resumo) resumo.innerHTML = '<span class="ponto-online on"></span>'+Object.keys(onlineIds).length+' online agora';
+  var els = document.querySelectorAll('[data-online-uid]');
+  for(var i=0;i<els.length;i++){
+    var on = !!onlineIds[els[i].getAttribute('data-online-uid')];
+    var ponto = els[i].querySelector('.ponto-online');
+    var txt = els[i].querySelector('.txt-online');
+    if(ponto) ponto.className = 'ponto-online' + (on ? ' on' : '');
+    if(txt) txt.textContent = on ? 'Online agora' : txt.getAttribute('data-visto');
+  }
 }
 
 function blocoPermissoes(u){
@@ -3248,11 +3372,13 @@ async function retomarSessao(){
           state.token='supabase'; state.cargo=perfil.cargo; state.nome=perfil.nome;
           state.permissoes = perfil.permissoes || [];
           state.integranteId = perfil.integrante_id || null;
-          if (perfil.precisa_trocar_senha){
+          state.userId = perfil.id || null;
+          if (perfil.precisa_trocar_senha || modoRecuperacao){
             state.screen='trocar-senha';
           } else {
             state.screen='app'; state.view='dashboard';
           }
+          iniciarPresenca();
         }
       }catch(e){ /* sessão inválida ou perfil não liberado: vai para a tela pública */ }
     }
