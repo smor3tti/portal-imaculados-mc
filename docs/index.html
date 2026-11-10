@@ -994,11 +994,18 @@ async function supabaseFetch(path, metodo, corpo){
       /* vw_eventos já esconde os excluídos e calcula a situação (Realizado pela data) */
       var evs = erroSb(await c.from('vw_eventos').select('*').order('data'));
       var pres = [];
-      try { pres = erroSb(await c.from('presencas').select('evento_id,confirmacao')) || []; } catch(e){}
+      try { pres = erroSb(await c.from('presencas').select('evento_id,integrante_id,confirmacao')) || []; } catch(e){}
+      var euId = null;
+      try { euId = await meuIntegranteId(c); } catch(e){}
       return evs.map(function(e){
         e.total_confirmados = pres.filter(function(x){
           return x.evento_id === e.id && x.confirmacao === 'Confirmado';
         }).length;
+        /* Resposta do próprio usuário, para os botões Vou / Não vou virem marcados */
+        var minha = euId ? pres.find(function(x){
+          return x.evento_id === e.id && x.integrante_id === euId;
+        }) : null;
+        e.minha_confirmacao = minha ? minha.confirmacao : 'Pendente';
         e.imagem_url = e.imagem_path ? urlPublicaImagem(c, e.imagem_path, 'eventos') : null;
         return e;
       });
@@ -2540,6 +2547,8 @@ function periodoEvento(ev){
   return fmtData(ev.data);
 }
 
+var ultimaListaEventos = [];
+
 async function renderEventos(body){
   var podeEditar = podeFazer('editar_eventos');
   var aba = state.eventosAba || 'proximos';
@@ -2559,6 +2568,7 @@ async function renderEventos(body){
   if(temBackend()){
     try{ lista = await apiFetch('/eventos'); }catch(e){ /* mantém mock em caso de falha */ }
   }
+  ultimaListaEventos = lista;
   /* Próximos: do mais perto ao mais distante. Realizados: do mais recente ao mais antigo. */
   lista = lista.filter(function(ev){
     return aba==='realizados' ? eventoPassado(ev) : !eventoPassado(ev);
@@ -2583,8 +2593,11 @@ async function renderEventos(body){
     var cancelado = situacao==='Cancelado';
     var presencasEv = demoPresencas[ev.id] || [];
     var totalConfirmados = ev.total_confirmados!==undefined ? ev.total_confirmados : presencasEv.filter(function(p){return p.confirmacao==='Confirmado';}).length;
-    var minhaPresenca = presencasEv.find(function(p){return p.integrante_id===USUARIO_DEMO_ID;});
-    var meuStatus = minhaPresenca ? minhaPresenca.confirmacao : 'Pendente';
+    var meuStatus = ev.minha_confirmacao;
+    if(meuStatus===undefined){ /* modo demonstração */
+      var minhaPresenca = presencasEv.find(function(p){return p.integrante_id===USUARIO_DEMO_ID;});
+      meuStatus = minhaPresenca ? minhaPresenca.confirmacao : 'Pendente';
+    }
     return '<div class="card"'+(cancelado||passado?' style="opacity:.85;"':'')+'>' +
       (ev.imagem_url ?
         '<img src="'+ev.imagem_url+'" alt="Imagem do evento" loading="lazy" ' +
@@ -2644,16 +2657,18 @@ async function responderPresenca(eventoId, resposta){
   if(temBackend()){
     try{ await apiFetch('/eventos/'+eventoId+'/presenca', {method:'POST', body:JSON.stringify({confirmacao:resposta})}); }
     catch(e){ alert('Erro ao registrar presença: '+e.message); return; }
+  } else {
+    if(!demoPresencas[eventoId]) demoPresencas[eventoId] = [];
+    var existente = demoPresencas[eventoId].find(function(p){return p.integrante_id===USUARIO_DEMO_ID;});
+    if(existente) existente.confirmacao = resposta;
+    else demoPresencas[eventoId].push({integrante_id:USUARIO_DEMO_ID, confirmacao:resposta});
   }
-  if(!demoPresencas[eventoId]) demoPresencas[eventoId] = [];
-  var existente = demoPresencas[eventoId].find(function(p){return p.integrante_id===USUARIO_DEMO_ID;});
-  if(existente) existente.confirmacao = resposta;
-  else demoPresencas[eventoId].push({integrante_id:USUARIO_DEMO_ID, confirmacao:resposta});
   renderEventos(document.getElementById('view-body'));
 }
 
 async function verPresencas(eventoId){
-  var evento = demoEventos.find(function(e){return e.id===eventoId;});
+  /* Busca na lista carregada da tela: os IDs reais coincidem com os de demonstração */
+  var evento = ultimaListaEventos.find(function(e){return e.id===eventoId;});
   var presencasEv = demoPresencas[eventoId] || [];
   if(temBackend()){
     try{ presencasEv = await apiFetch('/eventos/'+eventoId+'/presencas'); }catch(e){}
