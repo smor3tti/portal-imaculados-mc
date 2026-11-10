@@ -6,7 +6,7 @@
  * precisam estar sempre atualizados, e guardá-los poderia mostrar informação
  * financeira vencida ou vazar dados no aparelho.
  */
-var VERSAO = 'imaculados-v1';
+var VERSAO = 'imaculados-v2';
 
 var ARQUIVOS = [
   './',

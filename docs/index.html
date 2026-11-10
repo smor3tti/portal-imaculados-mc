@@ -458,6 +458,7 @@ var state = {
   apiBase:'',
   membrosFiltro:'',
   mensalidadesFiltro:'todas',
+  eventosAba:'proximos',
 };
 
 /* ============ Permissões ============ */
@@ -572,7 +573,7 @@ var demoEventos = [
   {id:1, nome:'Encontro Regional de Motoclubes', data:'2026-08-23', local:'Sorocaba - SP', descricao:'Encontro anual reunindo motoclubes da região.', tipo:'Encontro', status:'Confirmado', criador_id:1},
   {id:2, nome:'Churrasco de Confraternização', data:'2026-08-30', local:'Sede do Imaculados M.C.', descricao:'Churrasco mensal da irmandade, tragam a família.', tipo:'Churrasco', status:'Planejado', criador_id:3},
   {id:3, nome:'Passeio Serra do Mar', data:'2026-09-14', local:'Serra do Mar - SP', descricao:'Passeio de final de semana, saída às 7h da sede.', tipo:'Passeio', status:'Planejado', criador_id:2},
-  {id:4, nome:'Aniversário do Clube - 12 anos', data:'2026-07-05', local:'Sede do Imaculados M.C.', descricao:'Festa de aniversário do M.C.', tipo:'Aniversário', status:'Realizado', criador_id:1}
+  {id:4, nome:'Aniversário do Clube - 12 anos', data:'2026-07-05', local:'Sede do Imaculados M.C.', descricao:'Festa de aniversário do M.C.', tipo:'Aniversário', status:'Planejado', criador_id:1}
 ];
 
 var demoPresencas = {
@@ -990,7 +991,8 @@ async function supabaseFetch(path, metodo, corpo){
   /* ---- eventos e presenças ---- */
   if (p[0] === 'eventos'){
     if (p.length === 1 && metodo === 'GET'){
-      var evs = erroSb(await c.from('eventos').select('*').order('data'));
+      /* vw_eventos já esconde os excluídos e calcula a situação (Realizado pela data) */
+      var evs = erroSb(await c.from('vw_eventos').select('*').order('data'));
       var pres = [];
       try { pres = erroSb(await c.from('presencas').select('evento_id,confirmacao')) || []; } catch(e){}
       return evs.map(function(e){
@@ -1008,17 +1010,22 @@ async function supabaseFetch(path, metodo, corpo){
       novo.criador_id = meu;
       return erroSb(await c.from('eventos').insert(novo).select().single());
     }
-    if (p.length === 2 && metodo === 'PUT')
-      return erroSb(await c.from('eventos').update(corpo).eq('id', p[1]).select().single());
+    if (p.length === 2 && metodo === 'PUT'){
+      var alt = Object.assign({}, corpo);
+      /* Campos calculados pela view não existem na tabela */
+      delete alt.situacao; delete alt.passado; delete alt.total_confirmados; delete alt.imagem_url;
+      /* "Realizado" é calculado pela data; não se marca à mão */
+      if (alt.status === 'Realizado') delete alt.status;
+      return erroSb(await c.from('eventos').update(alt).eq('id', p[1]).select().single());
+    }
     if (p.length === 2 && metodo === 'DELETE'){
-      /* Apaga o arquivo antes do registro: na ordem inversa, uma falha deixaria
-         a imagem órfã no Storage sem nenhum registro apontando para ela. */
-      var alvoEv = erroSb(await c.from('eventos')
-        .select('imagem_path').eq('id', p[1]).maybeSingle());
-      if (alvoEv && alvoEv.imagem_path){
-        try { await c.storage.from('eventos').remove([alvoEv.imagem_path]); } catch(e){}
-      }
-      erroSb(await c.from('eventos').delete().eq('id', p[1]));
+      /* Exclusão lógica: o evento some das listas, mas presenças, imagem e
+         vínculos continuam no banco (presencas tem ON DELETE CASCADE e um
+         delete físico apagaria o histórico de quem foi). */
+      erroSb(await c.from('eventos').update({
+        excluido_em: new Date().toISOString(),
+        excluido_por: await meuIntegranteId(c)
+      }).eq('id', p[1]));
       return {detail:'Evento excluído'};
     }
     if (p.length === 3 && p[2] === 'presencas'){
@@ -2499,38 +2506,86 @@ async function excluirLancamento(id){
 /* ============ Eventos ============ */
 var TIPO_ICONE = {'Passeio':'🏍️','Encontro':'🤝','Churrasco':'🍖','Aniversário':'🎉','Reunião':'📋','Outro':'📌'};
 
+/* Data de hoje no fuso de SP (o relógio do aparelho pode estar em outro fuso,
+   e toISOString() usa UTC: depois das 21h já seria "amanhã"). */
+function hojeSP(){
+  return new Date().toLocaleDateString('en-CA', {timeZone:'America/Sao_Paulo'});
+}
+
+/* Mesma regra da vw_eventos — usada no modo demonstração e como reserva */
+function situacaoEvento(ev){
+  if(ev.situacao) return ev.situacao;
+  if(ev.status==='Cancelado') return 'Cancelado';
+  if((ev.data_fim||ev.data) < hojeSP()) return 'Realizado';
+  return ev.status==='Realizado' ? 'Planejado' : ev.status;
+}
+function eventoPassado(ev){
+  if(ev.passado!==undefined && ev.passado!==null) return !!ev.passado;
+  return (ev.data_fim||ev.data) < hojeSP();
+}
+
 function statusPillClasseEvento(status){
   if(status==='Realizado') return 'status-ativo';
   if(status==='Cancelado') return 'status-inativo';
   return 'status-pago'; /* Planejado / Confirmado usam o verde de "positivo" */
 }
 
+function trocarAbaEventos(aba){
+  state.eventosAba = aba;
+  renderEventos(document.getElementById('view-body'));
+}
+
+function periodoEvento(ev){
+  if(ev.data_fim && ev.data_fim !== ev.data) return fmtData(ev.data)+' a '+fmtData(ev.data_fim);
+  return fmtData(ev.data);
+}
+
 async function renderEventos(body){
+  var podeEditar = podeFazer('editar_eventos');
+  var aba = state.eventosAba || 'proximos';
   body.innerHTML =
     '<div class="painel-titulo">Eventos</div>' +
     '<div class="painel-sub">Passeios, encontros, churrascos e aniversários da irmandade</div>' +
-    '<div class="toolbar"><button class="btn-primario" onclick="abrirModalNovoEvento()">+ Novo evento</button></div>' +
+    '<div class="toolbar">' +
+      '<div class="tabs">' +
+        '<button class="tab '+(aba==='proximos'?'ativo':'')+'" onclick="trocarAbaEventos(\'proximos\')">Próximos</button>' +
+        '<button class="tab '+(aba==='realizados'?'ativo':'')+'" onclick="trocarAbaEventos(\'realizados\')">Realizados</button>' +
+      '</div>' +
+      (podeEditar ? '<button class="btn-primario" onclick="abrirModalNovoEvento()">+ Novo evento</button>' : '') +
+    '</div>' +
     '<div class="cards-grid" id="grid-eventos"></div>';
 
   var lista = demoEventos;
   if(temBackend()){
     try{ lista = await apiFetch('/eventos'); }catch(e){ /* mantém mock em caso de falha */ }
   }
-  lista = lista.slice().sort(function(a,b){ return a.data < b.data ? -1 : 1; });
+  /* Próximos: do mais perto ao mais distante. Realizados: do mais recente ao mais antigo. */
+  lista = lista.filter(function(ev){
+    return aba==='realizados' ? eventoPassado(ev) : !eventoPassado(ev);
+  }).sort(function(a,b){
+    if(a.data===b.data) return 0;
+    var cresc = a.data < b.data ? -1 : 1;
+    return aba==='realizados' ? -cresc : cresc;
+  });
 
   var grid = document.getElementById('grid-eventos');
   if(!grid) return;
   if(lista.length===0){
-    grid.innerHTML = '<div class="vazio">Nenhum evento cadastrado ainda.</div>';
+    grid.innerHTML = '<div class="vazio">'+(aba==='realizados'
+      ? 'Nenhum evento realizado ainda.'
+      : 'Nenhum evento programado.')+'</div>';
     return;
   }
 
   grid.innerHTML = lista.map(function(ev){
+    var situacao = situacaoEvento(ev);
+    var passado = eventoPassado(ev);
+    var cancelado = situacao==='Cancelado';
     var presencasEv = demoPresencas[ev.id] || [];
     var totalConfirmados = ev.total_confirmados!==undefined ? ev.total_confirmados : presencasEv.filter(function(p){return p.confirmacao==='Confirmado';}).length;
     var minhaPresenca = presencasEv.find(function(p){return p.integrante_id===USUARIO_DEMO_ID;});
     var meuStatus = minhaPresenca ? minhaPresenca.confirmacao : 'Pendente';
-    return '<div class="card">' +
+    return '<div class="card"'+(cancelado||passado?' style="opacity:.85;"':'')+'>' +
       (ev.imagem_url ?
         '<img src="'+ev.imagem_url+'" alt="Imagem do evento" loading="lazy" ' +
              'onclick="ampliarImagem(this.src)" ' +
@@ -2539,20 +2594,50 @@ async function renderEventos(body){
         : '') +
       '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">' +
         '<div class="card-titulo">'+(TIPO_ICONE[ev.tipo]||'📌')+' '+ev.tipo.toUpperCase()+'</div>' +
-        '<span class="status-pill '+statusPillClasseEvento(ev.status)+'">'+ev.status+'</span>' +
+        '<span class="status-pill '+statusPillClasseEvento(situacao)+'">'+situacao+'</span>' +
       '</div>' +
-      '<div style="font-size:16px;font-weight:700;color:var(--cream);margin:6px 0 2px;">'+ev.nome+'</div>' +
-      '<div class="card-sub" style="margin-top:0;">'+fmtData(ev.data)+' · '+(ev.local||'Local a definir')+'</div>' +
+      '<div style="font-size:16px;font-weight:700;color:var(--cream);margin:6px 0 2px;'+(cancelado?'text-decoration:line-through;':'')+'">'+ev.nome+'</div>' +
+      '<div class="card-sub" style="margin-top:0;">'+periodoEvento(ev)+' · '+(ev.local||'Local a definir')+'</div>' +
       '<div style="font-size:12.5px;color:var(--muted);margin-top:10px;line-height:1.5;white-space:pre-wrap;">'+(ev.descricao||'')+'</div>' +
-      '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;">' +
-        '<button class="acao-link" onclick="verPresencas('+ev.id+')">'+totalConfirmados+' confirmado(s) — ver lista</button>' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;gap:8px;flex-wrap:wrap;">' +
+        '<button class="acao-link" onclick="verPresencas('+ev.id+')">'+totalConfirmados+(passado?' foram':' confirmado(s)')+' — ver lista</button>' +
+        (podeEditar ?
+          '<span style="display:flex;gap:12px;">' +
+            (!passado && !cancelado ? '<button class="acao-link" onclick="cancelarEvento('+ev.id+')">Cancelar</button>' : '') +
+            '<button class="acao-link" style="color:var(--danger);" onclick="excluirEvento('+ev.id+')">Excluir</button>' +
+          '</span>' : '') +
       '</div>' +
-      '<div style="display:flex;gap:8px;margin-top:12px;">' +
-        '<button class="tab '+(meuStatus==='Confirmado'?'ativo':'')+'" style="flex:1;text-align:center;" onclick="responderPresenca('+ev.id+',\'Confirmado\')">Vou</button>' +
-        '<button class="tab '+(meuStatus==='Recusado'?'ativo':'')+'" style="flex:1;text-align:center;" onclick="responderPresenca('+ev.id+',\'Recusado\')">Não vou</button>' +
-      '</div>' +
+      /* Confirmação de presença só faz sentido para evento que ainda vai acontecer */
+      (!passado && !cancelado ?
+        '<div style="display:flex;gap:8px;margin-top:12px;">' +
+          '<button class="tab '+(meuStatus==='Confirmado'?'ativo':'')+'" style="flex:1;text-align:center;" onclick="responderPresenca('+ev.id+',\'Confirmado\')">Vou</button>' +
+          '<button class="tab '+(meuStatus==='Recusado'?'ativo':'')+'" style="flex:1;text-align:center;" onclick="responderPresenca('+ev.id+',\'Recusado\')">Não vou</button>' +
+        '</div>' : '') +
     '</div>';
   }).join('');
+}
+
+async function cancelarEvento(id){
+  if(!confirm('Marcar este evento como cancelado? Ele continua visível, com o status "Cancelado".')) return;
+  if(temBackend()){
+    try{ await apiFetch('/eventos/'+id, {method:'PUT', body:JSON.stringify({status:'Cancelado'})}); }
+    catch(e){ alert('Erro ao cancelar: '+e.message); return; }
+  } else {
+    demoEventos.forEach(function(e){ if(e.id===id) e.status='Cancelado'; });
+  }
+  renderEventos(document.getElementById('view-body'));
+}
+
+async function excluirEvento(id){
+  if(!confirm('Excluir este evento? Use só para evento lançado por engano — '+
+              'para evento que não vai acontecer, use "Cancelar".')) return;
+  if(temBackend()){
+    try{ await apiFetch('/eventos/'+id, {method:'DELETE'}); }
+    catch(e){ alert('Erro ao excluir: '+e.message); return; }
+  } else {
+    demoEventos = demoEventos.filter(function(e){ return e.id!==id; });
+  }
+  renderEventos(document.getElementById('view-body'));
 }
 
 async function responderPresenca(eventoId, resposta){
@@ -2597,10 +2682,11 @@ function abrirModalNovoEvento(){
         '<div class="campo"><label>Nome do evento</label><input type="text" id="novo-evento-nome"></div>' +
         '<div class="grid-2">' +
           '<div class="campo"><label>Data</label><input type="date" id="novo-evento-data"></div>' +
-          '<div class="campo"><label>Tipo</label><select id="novo-evento-tipo">' +
-            '<option>Encontro</option><option>Passeio</option><option>Churrasco</option><option>Aniversário</option><option>Reunião</option><option>Outro</option>' +
-          '</select></div>' +
+          '<div class="campo"><label>Término (se durar mais de um dia)</label><input type="date" id="novo-evento-data-fim"></div>' +
         '</div>' +
+        '<div class="campo"><label>Tipo</label><select id="novo-evento-tipo">' +
+          '<option>Encontro</option><option>Passeio</option><option>Churrasco</option><option>Aniversário</option><option>Reunião</option><option>Outro</option>' +
+        '</select></div>' +
         '<div class="campo"><label>Local</label><input type="text" id="novo-evento-local"></div>' +
         '<div class="campo"><label>Descrição</label><textarea id="novo-evento-descricao" rows="3"></textarea></div>' +
         '<div class="campo">' +
@@ -2620,12 +2706,15 @@ async function salvarNovoEvento(){
   var novo = {
     nome: document.getElementById('novo-evento-nome').value.trim(),
     data: document.getElementById('novo-evento-data').value,
+    data_fim: document.getElementById('novo-evento-data-fim').value || null,
     tipo: document.getElementById('novo-evento-tipo').value,
     local: document.getElementById('novo-evento-local').value.trim(),
     descricao: document.getElementById('novo-evento-descricao').value.trim(),
     status: 'Planejado'
   };
   if(!novo.nome || !novo.data){ alert('Informe ao menos o nome e a data do evento.'); return; }
+  if(novo.data_fim && novo.data_fim < novo.data){ alert('O término não pode ser antes da data de início.'); return; }
+  if(novo.data_fim === novo.data) novo.data_fim = null;
 
   var inputImg = document.getElementById('novo-evento-imagem');
   var arquivo = inputImg && inputImg.files ? inputImg.files[0] : null;
